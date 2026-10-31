@@ -1,9 +1,9 @@
 # DATA_MODEL —— 数据模型与字段说明
 
-当前数据库版本：**0001**（阶段 0 已落地，字段为阶段 1 的知识库功能准备）。
+当前数据库版本：**0001**（阶段 0 建表，阶段 1 的知识库功能已在这些表上跑通）。
 表结构由 `migrations/versions/0001_stage1_knowledge_core.py` 定义，
 ORM 模型在 `backend/db/models/`，两者必须保持一致
-（用 `uv run alembic check` 验证，不一致会报漂移）。
+（用 `uv run alembic check` 验证，不一致会报漂移；阶段 1 收尾实测无漂移）。
 
 > 为什么这份说明放这里而不是 `alembic.ini`：Alembic 用**操作系统区域编码**
 > （中文 Windows 是 GBK）读 `alembic.ini`，那个文件里写中文会直接
@@ -150,7 +150,7 @@ AI 审查后指出遗漏，用户采纳：
 
 测试 `test_original_understanding_survives_new_version` 就是断言这件事。
 
-### 什么时候才创建新版本（阶段 1 的实现约束）
+### 什么时候才创建新版本（已实现：`backend/domain/versioning.py`）
 
 **规则**：`user_understanding`、`reasoning`、`open_questions`
 三者**任一实际值发生变化**时，才创建新版本行。
@@ -158,14 +158,29 @@ AI 审查后指出遗漏，用户采纳：
 改 `title` / `domain` / `summary` / `sources` 属于整理性工作，
 **就地 UPDATE，不建版本**。
 
-理由与已知取舍见 `DECISIONS.md` D-030。两条实现上的硬要求：
+理由与已知取舍见 `DECISIONS.md` D-030。两条实现上的硬要求，都已落地并被测试锁住：
 
 1. **必须先比对实际值，不能无脑建版本。** 否则"用户点了保存但什么都没改"
    也会让版本号 +1，制造出假历史。
+   实现上把每个字段都 `strip()` 后再比：只在首尾加空格不算改动；
+   但**显式传 null 把内容清空算改动**，而"字段根本没传"不算——
+   这两者的区别只能靠 Pydantic 的 `model_fields_set` 判断，
+   `model_dump()` 分不出来（两者都会变成 `None`）。
 2. **`title` 不在版本表里，所以标题的演变历史留不下来。**
    这是用户明确知情并接受的取舍。如果日后要改，
-   需要给 `knowledge_versions` 加标题快照列并写迁移——
-   现在数据库 0 行，是最便宜的时机。
+   需要给 `knowledge_versions` 加标题快照列并写迁移。
+   阶段 0 时数据库 0 行是最便宜的时机，现在也仍然很便宜——
+   真实库里还没有用户数据。
+
+版本号取 `MAX(version_number) + 1`，**不是 `len(versions) + 1`**。
+两者在版本号连续时结果一样，一旦出现空洞（将来支持"恢复到旧版本"、
+或手工修过数据）就会撞 `(knowledge_id, version_number)` 唯一约束。
+`test_number_comes_from_the_maximum_not_the_row_count` 用原生 SQL
+人为造出空洞来验证这一点。
+
+没改动时 `PUT` 是幂等的：传 `{}` 返回的 body 与传入前完全一致，版本号不变。
+改了理解字段但没写「修改说明」时，自动生成一条，
+形如 `修改了：自己的理解、尚存疑问`（字段名用中文，用户看得懂）。
 
 ---
 
@@ -192,9 +207,13 @@ AI 审查后指出遗漏，用户采纳：
 > 取值约束放在 Pydantic schema 层（`backend/schemas/knowledge.py`），
 > 不做数据库级 CHECK 约束，理由见 `DECISIONS.md` D-005 / D-029。
 >
-> **已知待办**：`sources.source_type` 的默认值 `"other"` 目前是硬编码字符串，
-> 阶段 1 要像 `knowledge.source_type` 那样定义成模块级常量
-> （`SOURCE_TYPE_BOOK` 等），并在 schema 层加"other 时 note 必填"的跨字段校验。
+> **已落地**：`backend/db/models/source.py` 里 8 个来源类型都有模块级常量
+> （`SOURCE_TYPE_BOOK` … `SOURCE_TYPE_OTHER`），默认值不再硬编码字符串；
+> `backend/schemas/knowledge.py` 的 `SourceCreate` 上有跨字段校验，
+> `source_type='other'` 而 `note` 为空时返回 422，
+> 报文里带中文说明「来源类型选择「其他」时，备注必填：请写清楚具体是什么来源」。
+> 前端在提交前也会拦住并给出同样的提示（`SourceEditor.tsx::sourceDraftError`），
+> 但**后端才是边界**——前端那道只是体验，不是安全保证。
 
 ---
 
@@ -224,8 +243,18 @@ CREATE VIRTUAL TABLE knowledge_fts USING fts5(
 `knowledge_versions.user_understanding`。所以只能用独立表。
 
 **代价**：同步逻辑必须显式写在 `services/search_service.py` 里，
-写入路径漏调同步函数就会索引不一致。阶段 1 必须有测试覆盖：
-"改标题后能搜到新标题、搜不到旧标题"。
+写入路径漏调同步函数就会索引不一致。
+
+**已落地的保障**：
+
+- `create_knowledge` / `update_knowledge` / `archive_knowledge` /
+  `restore_knowledge` 四条写入路径全部调 `sync_index()`
+- `TestIndexStaysInSync` 覆盖："改标题后能搜到新标题、搜不到旧标题"、
+  连改 3 次后每条知识在 FTS 里**恰好 1 行**、索引正文 == 当前版本、归档后仍在索引里
+- `rebuild_index()` 是修复入口：清空索引后重建，能补回丢失的行、
+  替换过期正文、去掉重复索引
+- **这个 bug 在数据库里看不出来**（版本行、标题列都是对的），
+  只有走搜索 API 才暴露，所以测试必须打在 API 层而不只是 service 层
 
 ### 影子表
 
@@ -241,14 +270,32 @@ FTS5 会自动创建 5 张影子表：`knowledge_fts_data`、`knowledge_fts_idx`
 但 **MATCH 查询要求至少 3 个字符**，2 字词直接返回空结果。
 而「梯度」「复习」「熵」这类 1~2 字词在中文笔记里极其常见。
 
-策略（阶段 1 在 `search_service` 实现）：
+策略（已在 `backend/services/search_service.py` 实现）：
 
 | 查询长度 | 走哪条路 | 实测性能 |
 |---|---|---|
 | ≥ 3 字符 | FTS5 `MATCH` | 索引命中，快 |
 | 1~2 字符 | `LIKE '%xx%'` | 5000 条数据下 **1.0~1.4ms** |
 
-两条路径结果做并集去重。实测结果一致。
+**关键细节：LIKE 兜底查的是权威表（`knowledge` + `knowledge_versions`），
+不是 `knowledge_fts`。** 否则索引一旦失步，短词搜索会跟着一起瞎——
+而短词恰恰是中文里最常用的那批。
+`test_short_query_is_immune_to_index_damage` 把 `knowledge_fts` 整个清空后断言：
+4 字词「梯度下降」搜不到（total 0，符合预期，因为它依赖索引），
+但 2 字词「梯度」和单字「挪」**照样能搜到**。
+
+响应里带 `strategy` 字段（`fts` / `like`），前端据此告诉用户
+「检索方式：全文索引」还是「关键词匹配（搜索词较短，走关键词匹配）」——
+搜索行为不透明，用户会以为是自己的东西没存进去。
+
+`matched_by` 字段（`title` / `body` / `both`）说明命中在哪，
+`snippet` 给一段带命中位置的正文预览。
+
+**索引里放什么**：`title` + 当前版本的 `user_understanding`。
+刻意**不含** `reasoning` / `open_questions`——搜的是"我写过的理解"，
+把依据和疑问也混进正文会让命中变得模糊，
+所以只写在「尚存疑问」里的词句搜不到，这是取舍不是漏索引。
+
 完整理由见 `DECISIONS.md` D-007。
 
 ---
@@ -300,8 +347,12 @@ Blueprint 5.1 明确"归档而非物理删除"。`knowledge.status = 'archived'`
 
 ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 （比如替换整个 versions 列表时清理被移除的行），
-**不代表业务上允许物理删除知识单元**。阶段 1 的 service 层不应该暴露
-硬删除接口。
+**不代表业务上允许物理删除知识单元**。
+
+已落地：`knowledge_service.py` 里**没有任何硬删除函数**，
+`api/knowledge.py` 的 9 个端点里**没有 DELETE**，
+只有 `archive` / `restore`。级联删除只在"替换来源列表"这类
+子对象整理时生效，主记录永远不会被业务代码删掉。
 
 ---
 

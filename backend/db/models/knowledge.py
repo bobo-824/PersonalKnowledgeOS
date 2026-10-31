@@ -12,12 +12,23 @@ from backend.db.models.knowledge_version import KnowledgeVersion
 from backend.db.models.source import Source
 
 # 状态与来源类型用字符串常量而非 SQLAlchemy Enum：SQLite 上枚举变更会让 Alembic
-# 迁移变得脆弱，取值校验交给 Pydantic schema 层（理由见 docs/DECISIONS.md）。
+# 迁移变得脆弱，取值校验交给 Pydantic schema 层（理由见 docs/DECISIONS.md D-005）。
 STATUS_ACTIVE = "active"
 STATUS_ARCHIVED = "archived"
 
+STATUSES: tuple[str, ...] = (STATUS_ACTIVE, STATUS_ARCHIVED)
+
+# ⚠️ 这里的 source_type 描述「这条知识怎么进系统的」，只有两种取值。
+# 它和 sources.source_type（描述「资料本身是什么形式」，8 种取值，
+# 常量前缀是 SOURCE_KIND_）是**两套不同的词表**，别混用。
+# 详见 source.py 顶部的说明和 docs/DECISIONS.md D-029。
 SOURCE_TYPE_MANUAL = "manual"
 SOURCE_TYPE_CONVERSATION = "conversation"
+
+KNOWLEDGE_SOURCE_TYPES: tuple[str, ...] = (
+    SOURCE_TYPE_MANUAL,
+    SOURCE_TYPE_CONVERSATION,
+)
 
 
 class Knowledge(Base):

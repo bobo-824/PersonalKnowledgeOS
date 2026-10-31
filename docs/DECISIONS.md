@@ -370,8 +370,8 @@ Blueprint 1.5 的七条原则不是口号，每条都有对应的技术约束：
 | 知识关系审核后才建立 | 阶段 4 的 `knowledge_relations.status`：pending / accepted / rejected，图谱只查 accepted | 待阶段 4 |
 | 本地优先 | SQLite 文件在 `data/`，无云同步代码；CORS 白名单只有本机 | `test_health_never_leaks_api_key` |
 | 最小必要传输 | 阶段 2 的 AI 调用只发当前知识单元，不发全库 | 待阶段 2 |
-| 移动端友好 | 导航项 `min-h-11`（44px），无任何 hover 依赖，抽屉导航 + 滚动锁定 | 浏览器实测 + `getComputedStyle` 验证 |
-| 不用假数据伪装功能 | 6 个未实现页面用 `StagePlaceholder` 明确标注"尚未实现"和所属阶段 | 浏览器实测 |
+| 移动端友好 | 导航项 `min-h-11`、图标按钮 `size-11`（均为 44px），输入框字号 16px（防 iOS 聚焦自动放大），无任何 hover 依赖，抽屉导航 + 滚动锁定 + Esc 关闭 | 浏览器实测 + `getBoundingClientRect` / `getComputedStyle` 验证 |
+| 不用假数据伪装功能 | 4 个未实现页面用 `StagePlaceholder` 明确标注"尚未实现"、所属阶段，以及项目当前做到第几阶段（`CURRENT_STAGE` 常量，避免占位页谎报进度） | 浏览器实测 |
 
 ---
 
@@ -436,6 +436,101 @@ Blueprint 1.5 的七条原则不是口号，每条都有对应的技术约束：
 - **将来如果混乱仍然严重**：优先考虑做一个"领域合并"工具
   （把 ML 和 Machine Learning 批量改成 机器学习），
   而**不是**回头建字典表。
+
+---
+
+## 八、阶段 1 实施中做的决策（2026-10-31）
+
+### D-032 FTS5 用独立表，不用「外部内容表 + 触发器」
+
+- **决策**：`knowledge_fts` 建成**独立**的 FTS5 表（不写 `content='<表名>'`），
+  索引同步显式写在 `search_service.sync_index()` 里，由四条写入路径主动调用。
+- **为什么偏离原计划**：外部内容表（external content）只能绑定**一张**表，
+  而要索引的内容横跨两张——`knowledge.title` 和
+  `knowledge_versions.user_understanding`（还得跟着 `current_version_id` 走）。
+  用触发器就得在三张表上写互相牵连的 AFTER INSERT/UPDATE/DELETE，
+  其中"当前版本指针变了"这件事在 `knowledge` 表上表现为一次普通 UPDATE，
+  触发器里要再去查版本表拿新正文——复杂度远超它省下的那点代码。
+- **代价**：漏调 `sync_index()` 不会报错，只会**静默地搜不到**。
+  这是这个方案唯一的真实风险。
+- **怎么补**：`TestIndexStaysInSync`（API 层）+ `TestIndexConsistency`（服务层）
+  双向覆盖，另有 `rebuild_index()` 作为修复入口。
+  还有一条**兜底设计**：1~2 字的短查询走 LIKE 查**权威表**而不是 FTS 表，
+  所以索引坏掉时短词搜索仍然可用（`test_short_query_is_immune_to_index_damage`）。
+
+### D-033 搜索只索引「当前版本」的 `user_understanding`
+
+- **决策**：FTS 的 `body` 列 == 当前版本的 `user_understanding`。
+  **不含** `reasoning` / `open_questions`，**不含**历史版本。
+- **理由**：搜的是"我写过的理解"。把依据和疑问混进正文，
+  命中会变模糊——搜一个词出来一堆"我曾经怀疑过……"的条目，噪音大于信号。
+- **⚠️ 由此产生的用户可感知行为**：
+  只写在旧版本里、当前版本已删掉的词句**搜不到**。
+  实测：「跳过最低点」只存在于 v1，搜索返回 0 条。
+  只写在「尚存疑问」里的词句同样搜不到。
+- **如果日后反悔**：给 `knowledge_fts` 加版本维度（每版本一行）即可，
+  但这会让"搜到一条知识"变成"搜到某个历史版本"，列表展示要跟着改。
+  属于阶段 3 之后再评估的事。
+
+### D-034 4 个 UI 基础组件手写，下拉框用原生 `<select>`
+
+- **决策**：`input` / `textarea` / `select` / `label` 手写，
+  不走 shadcn registry；`select` 用**原生** `<select>` 加自绘箭头，
+  不用 Radix 的 Select。
+- **为什么手写**：shadcn CLI 要联网拉 registry，本机 Clash Verge 阻断。
+  这四个组件的样式总共不到 100 行，抄一份不如写一份可控的。
+- **为什么原生 `<select>`**：手机上它会唤起**系统自己的选择器**
+  （iOS 滚轮 / Android 底部弹窗），单手可用；
+  键盘导航和读屏支持是浏览器免费给的。
+  自绘下拉要重新实现这一切，而且往往实现得更差。
+- **代价**：原生 select 的外观可定制性差，选项里不能放图标或富文本。
+  对这个项目（选项就是一串领域名）不构成损失。
+- **同类决策**：`VersionHistory` 里旧版本用原生 `<details>/<summary>` 做折叠，
+  同理——键盘、读屏、触屏天然可用，不用自己管开合状态。
+
+### D-035 列表 key 不用 `crypto.randomUUID()`
+
+- **决策**：`SourceEditor` 的草稿行 key 用**模块级自增计数器**。
+- **理由**：`crypto.randomUUID()` 只在**安全上下文**（https 或 localhost）下存在。
+  而 Blueprint 6.4 要求手机通过局域网 IP 访问电脑上的服务，
+  那时地址是 `http://192.168.x.x:8000`——**不是**安全上下文，
+  `crypto.randomUUID` 会是 `undefined`，一点「添加来源」就崩。
+- **为什么不用 `Math.random()`**：key 只需要在这个列表内唯一且稳定，
+  计数器既唯一又可预测，测试也写得出来（`nextDraftKey()` 是导出的纯函数）。
+- **推广**：以后任何"只在浏览器里生成 id"的地方都要先问一句
+  "非安全上下文下这个 API 还在不在"。
+
+### D-036 前端持有词表的第三份拷贝，并用 zod 校验每个响应
+
+- **决策**：`lib/schemas.ts` 里再写一遍 8 种来源类型、2 种知识来源、
+  状态、`created_by`、`matched_by`、`strategy`，并用 zod schema 校验后端返回的每个 JSON。
+- **为什么不生成**：从 OpenAPI 自动生成 TS 类型需要额外工具链和一次联网，
+  而这几个词表**极其稳定**（改一次就是产品决策级别的变动）。
+- **漂移怎么防**：三层各有一道闸——
+  后端 `test_openapi_documents_the_vocabularies` 断言 OpenAPI 里的 enum == 模型常量；
+  前端 zod 校验失败会抛 `ApiError(kind="schema")`，
+  页面上显示「后端返回的数据和前端预期不一致」而**不是**静默渲染出 `undefined`。
+- **为什么前端还要再校验一遍**：JSON 跨进程、过网络和代理，
+  不校验的话症状是莫名其妙的 `undefined` 和 `.map is not a function`，
+  排查成本远高于写一次 schema。
+- **同理**：`KnowledgeForm` 里的 `UNDERSTANDING_FIELDS` 是
+  `backend/domain/versioning.py` 的拷贝，用途仅是**提前告诉用户这次保存会不会建版本**。
+  真正决定的是后端。两边漂移的后果是这句提示不准，数据本身仍然正确。
+
+### D-037 用变异测试验证测试质量，不看覆盖率数字
+
+- **决策**：往源码里注入 5 个语义变异，每个都必须有测试变红，才算测试写完。
+- **为什么不看覆盖率**：覆盖率只说"这行被执行过"，不说"这行的错会被发现"。
+  实测印证了这一点——`next_version_number` 改成 `len(versions) + 1` 后
+  **271 个测试全部通过**，覆盖率一点没掉，但那是个真 bug
+  （版本号一旦出现空洞就会撞唯一约束）。
+- **成本**：5 个变异手工注入 + 跑测试，十几分钟。
+  比调覆盖率阈值有用得多。
+- **⚠️ 踩过的坑**：变异脚本一开始用 `sys.executable` 跑 pytest，
+  那是系统 Python（没装 pytest），三个变异全部返回 `rc=1` 且 stdout 为空，
+  看起来像"全被抓住"。**必须显式用 `.venv/Scripts/python.exe`，并把 stderr 打出来。**
+- **将来**：每个阶段收尾都跑一轮，重点变异"最容易改错又不报错"的地方
+  （索引同步、版本号推导、事务边界）。
 
 ---
 

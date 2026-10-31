@@ -82,14 +82,14 @@ Blueprint 6.3 规定的五层。**依赖只能从上往下，不能反向，不�
 │  API 层    backend/api/                                │
 │  · 路由、依赖注入、HTTP 状态码                            │
 │  · 不含业务逻辑                                         │
-│  现有：health.py                                        │
+│  现有：health.py, knowledge.py（9 个端点）               │
 └───────────────────────┬──────────────────────────────┘
                         │ 调用
 ┌───────────────────────▼──────────────────────────────┐
 │  应用服务层  backend/services/                          │
 │  · 编排领域规则 + 数据库访问，管事务边界                    │
 │  · 一个业务动作 = 一个 service 函数 = 一个事务             │
-│  阶段1：knowledge_service.py, search_service.py        │
+│  现有：knowledge_service.py, search_service.py         │
 └──────────┬────────────────────────────┬──────────────┘
            │ 使用规则                     │ 读写
 ┌──────────▼─────────────┐  ┌────────────▼─────────────┐
@@ -98,9 +98,16 @@ Blueprint 6.3 规定的五层。**依赖只能从上往下，不能反向，不�
 │ · 不 import fastapi    │  │ · session.py 引擎与会话     │
 │ · 不 import sqlalchemy │  │ · base.py  UTCDateTime 等  │
 │ · 因此可以单独单元测试   │  │ backend/config.py 配置     │
-│ 阶段1：versioning.py    │  │ backend/schemas/ Pydantic │
+│ 现有：versioning.py     │  │ backend/schemas/ Pydantic │
 └────────────────────────┘  └──────────────────────────┘
 ```
+
+分层不是画着好看的，可以用两个事实验证依赖方向没被破坏：
+`backend/domain/versioning.py` 只 import 标准库
+（`collections.abc` / `dataclasses` / `typing`），没有 sqlalchemy 也没有 fastapi；
+因此 `test_versioning.py` 的 17 个测试不需要数据库、不需要 TestClient，
+实测 **0.04 秒**跑完。反过来，一旦有人图省事在 domain 里 import ORM 模型，
+这批测试会立刻因为要建库而变慢。
 
 ### 各层职责边界
 
@@ -152,6 +159,20 @@ def get_session() -> Generator[Session, None, None]:
 `sessionmaker` 配了 `expire_on_commit=False`（commit 后仍能读对象属性，
 不用额外 refresh）和 `autoflush=False`（flush 时机由 service 显式控制，
 避免"读一个属性意外触发写"这种难查的行为）。
+
+### 这两个配置带来的两个坑（都已实测锁住）
+
+`expire_on_commit=False` 让对象在 commit 后仍然"新鲜"，代价是 SQLAlchemy
+不会自动帮你刷新已经加载过的状态。阶段 1 踩到两处：
+
+1. **`selectinload` 不会刷新已加载的集合** → `_require()` 和 `list_knowledge()`
+   必须带 `.execution_options(populate_existing=True)`，否则第二次读同一条知识
+   拿到的是内存里的旧版本。删掉它，11 个测试变红。
+2. **只赋值外键不会让关系失效** → `knowledge.current_version_id = version.id`
+   之后，已经加载过的 `knowledge.current_version` 关系仍指向旧对象，
+   紧接着的 `sync_index()` 就会把**旧版本的正文**写进 FTS 索引。
+   必须外键和关系**两个都赋值**（`knowledge.current_version = version`）。
+   这个 bug 在数据库里看不出来（版本行是对的），只有走搜索 API 才暴露。
 
 ---
 
@@ -211,7 +232,7 @@ def get_session() -> Generator[Session, None, None]:
 ## 四、前端结构
 
 ```
-frontend/src/
+frontend/src/                     34 个 TS/TSX 文件（tsc -b --listFiles 实测）
 ├── main.tsx                 应用入口：QueryClientProvider + RouterProvider
 ├── index.css                Tailwind 4 入口 + CSS 变量主题
 ├── app/
@@ -219,13 +240,36 @@ frontend/src/
 │   └── navigation.ts        NAV_ITEMS：导航项的单一数据源
 ├── components/
 │   ├── layout/
-│   │   ├── AppShell.tsx       响应式外壳（侧栏 / 抽屉）
-│   │   └── StagePlaceholder.tsx  未实现页面的诚实占位
-│   └── ui/                  shadcn 生成的基础组件
+│   │   ├── AppShell.tsx         响应式外壳（侧栏 / 抽屉）
+│   │   └── StagePlaceholder.tsx 未实现页面的诚实占位
+│   ├── feedback/
+│   │   └── Notice.tsx           Notice / ApiErrorNotice / EmptyState
+│   ├── knowledge/
+│   │   ├── KnowledgeForm.tsx    新建与编辑共用的表单（含版本预览）
+│   │   ├── SourceEditor.tsx     学习来源子表单（「其他」必填备注）
+│   │   └── VersionHistory.tsx   历史版本列表，当前版高亮、旧版可展开
+│   └── ui/                      基础组件。badge/button/card/scroll-area/separator
+│                                来自 shadcn；input/textarea/select/label 是手写的
+│                                （shadcn registry 需要联网，本机被 Clash Verge 阻断）
 ├── lib/
+│   ├── api.ts               唯一的 HTTP 出口：拼 URL、zod 校验、422 翻译成中文
+│   ├── schemas.ts           zod 契约 + 词表常量 + 中文标签
+│   ├── knowledge-queries.ts TanStack Query 的 key 工厂与 hooks
+│   ├── format.ts            时间格式化、摘要截断、"有没有实质内容"判断
+│   ├── use-debounced-value.ts  搜索框防抖（中文输入法选词时会连续触发）
 │   └── utils.ts             cn() 等
 └── pages/                   每个路由一个页面组件
 ```
+
+三个约定值得单独说：
+
+- **页面不直接调 `fetch`**。一律走 `lib/api.ts` + `lib/knowledge-queries.ts`，
+  这样缓存失效只有一处（`["knowledge"]` 前缀），`enabled` 条件也集中。
+- **`lib/api.ts` 对每个响应做 zod 校验**。跨进程的 JSON 经过网络/代理/缓存，
+  不校验的话症状是莫名其妙的 `undefined` 和 `.map is not a function`。
+- **词表在前端是第三份拷贝**（后端 model 常量、OpenAPI、前端 schemas.ts）。
+  后端权威，漂移由 `test_openapi_documents_the_vocabularies` 兜住，
+  前端 zod 校验失败会抛 `ApiError(kind="schema")` 大声报错，不会静默存错数据。
 
 ### 路由
 
@@ -234,13 +278,22 @@ frontend/src/
 | 路径 | 页面 | 阶段 | 状态 |
 |---|---|---|---|
 | `/` | HomePage | 3 | ✅ 有真实数据（调 `/api/health`） |
-| `/knowledge` | KnowledgeListPage | 1 | 占位 |
-| `/knowledge/:knowledgeId` | KnowledgeDetailPage | 1 | 占位（显示真实 id） |
+| `/knowledge` | KnowledgeListPage | 1 | ✅ 列表 / 搜索 / 筛选 / 分页 |
+| `/knowledge/new` | KnowledgeEditPage | 1 | ✅ 新建（复用同一个表单组件） |
+| `/knowledge/:knowledgeId` | KnowledgeDetailPage | 1 | ✅ 详情 + 来源 + 版本历史 |
+| `/knowledge/:knowledgeId/edit` | KnowledgeEditPage | 1 | ✅ 编辑 |
 | `/study` | AiStudyRoomPage | 2 | 占位 |
 | `/review` | ReviewCenterPage | 3 | 占位 |
 | `/graph` | KnowledgeGraphPage | 4 | 占位 |
 | `/settings` | SettingsPage | 2 | 占位 |
 | `*` | NotFoundPage | — | ✅ 显示实际路径 |
+
+`new` 是静态段、`:knowledgeId` 是动态段，react-router 的路由排序保证静态段优先，
+所以 `/knowledge/new` 不会被详情页吃掉。这一点在
+`TestRouteOrdering` 里有后端侧的对应断言（`/api/knowledge/domains`、`/search` 同理）。
+
+`KnowledgeEditPage` 在编辑模式下**等数据到位才挂载表单**：表单初始值来自 props，
+先挂一个空表单再等数据，用户已经输入的内容会被覆盖掉。
 
 ### `navigation.ts` 是导航的单一数据源
 
@@ -268,45 +321,113 @@ queries: {
 
 - **桌面**（`lg` 以上）：固定侧栏 `w-64`，`sticky`，内含 ScrollArea
 - **移动**（`lg` 以下）：sticky 顶栏 + 汉堡按钮 → 抽屉
-  （`w-72 max-w-[85vw]`），带遮罩层，遮罩本身是
-  `<button aria-label="关闭导航">` 而不是 div（键盘可达）
-- **两个副作用**：路由变化时自动关抽屉；抽屉打开时锁
-  `document.body.style.overflow`，防止背景跟着滚
-- **触控目标 ≥ 44px**：导航项 `min-h-11`
+  （`w-72 max-w-[85vw]`），带遮罩层。遮罩和右上角 X 都是 `<button>`（键盘可达），
+  但两者的 `aria-label` 必须区分开——遮罩是「关闭导航（点击空白处）」，
+  否则读屏用户听到两个一模一样的「关闭导航」。Esc 也能关
+- **三个副作用**：路由变化时自动关抽屉；抽屉打开时锁
+  `document.body.style.overflow`，防止背景跟着滚；Esc 键关闭
+- **触控目标 ≥ 44px**：导航项 `min-h-11`；**图标按钮一律 `size-11`**。
+  shadcn `Button` 的 `icon-sm`/`icon-lg` 只有 28/36px，手指点容易点空，
+  所以凡是用到这两个 size 的地方都用 `className="size-11"` 覆盖掉
+  （`cn()` 走 tailwind-merge，后面的类胜出）
+- **输入框字号 16px**（`text-base md:text-sm`）：不是审美选择，
+  iOS Safari 聚焦字号小于 16px 的输入框时会自动放大整个页面
 - **零 hover 依赖**：所有交互在触屏上都能完成。
   hover 只用于视觉增强，不作为唯一触发方式
 - **键盘可达**：`focus-visible:ring-2`，当前项 `active:bg-muted`
+- **列表整行是 `<Link>`**：手机上手指点哪儿都能进详情，不用瞄准小图标
 
-浏览器实测过：首页、知识详情深链（`/knowledge/<uuid>` 直接刷新）、
-404 页、移动端抽屉导航全部正常，控制台零报错。
+浏览器实测过：首页、知识库列表、新建、详情、编辑、归档/恢复、
+搜索（含 2 字中文词）、分页翻页、404 页、深链直接刷新、移动端抽屉导航，
+控制台零消息（无 error 无 warning）。
 
-> 实测限制：`browser-use` 的截图和点击功能在本会话报
-> `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`（视口 0×0），
-> 所以是用 `take_snapshot` + `evaluate_script` 直接驱动 React 事件处理器验证的，
-> 并用 `getComputedStyle` 确认了 44px 最小高度和 Tailwind 类生效。
-> **CSS 断点在真实视口下的表现没有完整验证过**，阶段 5 需要人工在手机上过一遍。
+> **实测条件（说清楚量到了什么、没量到什么）**
+>
+> 内嵌浏览器视口是 **524×605**，低于 Tailwind 的 `md`(768px) 断点，
+> 所以上面全流程跑的都是**窄屏布局**，这些是真的量出来的：
+> 输入框计算高度 44px、字号 16px；按钮全部 ≥44×44；
+> `scrollWidth === clientWidth`（无横向溢出）；抽屉项 50px；分页按钮 44px。
+>
+> 没量到的：
+> - **截图**始终返回 `NATIVE_BROWSER_VIEWPORT_UNAVAILABLE`（页面 surface 处于
+>   `hidden`），所以全部验证都是结构化的——无障碍树快照 + `getComputedStyle`
+>   + `getBoundingClientRect`，没有人眼看过渲染结果
+> - MCP 的 `click` 工具派发不了点击（同一原因），改用 `evaluate_script` 里的
+>   `el.click()`；`press_key` 的 Esc 也没送达页面，改用派发 `KeyboardEvent` 验证
+> - **宽屏（≥768px）布局完全没验证过**，`md:`/`lg:` 分支只是代码推断
+>
+> 阶段 5 需要真机补一遍。
 
 ### 不用假数据伪装功能（Blueprint 10.2）
 
-6 个未实现页面全部用 `StagePlaceholder` 渲染，明确显示：
+剩下 4 个未实现页面（AI 学习室、复习中心、知识图谱、设置）用 `StagePlaceholder`
+渲染，明确显示：
 
 - 「尚未实现」标题 + `Construction` 图标
-- 「这个页面属于阶段 N。当前是阶段 0（项目骨架），此处不放演示数据，
+- 「这个页面属于阶段 N（阶段名），目前只做到阶段 M。此处不放演示数据，
   以免把未实现的功能伪装成已完成。」
+  —— `M` 取自 `app/navigation.ts` 的 `CURRENT_STAGE` 常量，
+  不是散落在各页的硬编码，否则每推进一个阶段就会留下一批说谎的文案
 - 「计划包含」列表，说明这个页面将来会有什么
 
-只有 `HomePage` 展示真实数据（`/api/health` 的返回值）。
+知识库三个页面展示的都是真实数据。**空库时不放示例数据**，
+而是给三种不同的空状态：搜索没命中 / 归档区是空的 / 一条都还没记，
+每种都写清楚下一步该做什么，而不是摆几条假知识让页面看起来热闹。
 
 ---
 
 ## 五、测试架构
 
 ```
-tests/
-├── conftest.py          夹具（全部走真实迁移 + 临时目录）
-├── test_health.py       /api/health 的语义与隐私（5 个）
-└── test_migrations.py   迁移结构与数据完整性保证（12 个）
+tests/                            271 个测试（各文件收集数相加 == 全量运行数）
+├── conftest.py               夹具（全部走真实迁移 + 临时目录）
+├── test_health.py            /api/health 的语义与隐私（5）
+├── test_migrations.py        迁移结构与数据完整性保证（12）
+├── test_versioning.py        domain 层版本规则的纯函数测试（17）
+├── test_schemas.py           Pydantic 校验与 422 报文（50）
+├── test_search_index.py      服务层：转义、索引一致性、索引修复（32）
+├── test_knowledge_service.py 服务层：版本号推导、N+1 查询次数（14）
+└── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（141）
 ```
+
+分层是有意的：domain 的纯函数测试跑得最快也最容易定位，
+API 测试只管"穿过整个栈之后行为对不对"，不重复测 domain 的分支。
+
+### 用变异测试验证测试本身
+
+"271 passed" 只说明测试没失败，不说明测试有用。所以往源码里注入 5 个变异，
+每个都必须有测试变红：
+
+| 注入的变异 | 结果 |
+|---|---|
+| 删掉 `sync_index()` 调用 | 14 个测试失败 ✅ |
+| 删掉 `populate_existing` 执行选项 | 11 个测试失败 ✅ |
+| 删掉"只有理解字段变了才建版本"的判断 | 14 个测试失败 ✅ |
+| `next_version_number` 改成 `len(versions) + 1` | **一开始全部通过 ❌** |
+| `_like_pattern` 调换转义顺序（先转 `%`/`_` 再转 `\`） | 2 个测试失败 ✅ |
+
+第 4 个是真正的漏洞：用行数而不是最大值推版本号，在版本号连续时结果一样，
+一旦出现空洞（恢复到旧版本、手工修数据）就会撞唯一约束。
+补了 `test_number_comes_from_the_maximum_not_the_row_count`——
+用原生 SQL 人为把 v2 改成 v10，断言下一个版本号是 11 而不是 3。
+
+> 踩过的坑：变异脚本一开始用 `sys.executable` 跑 pytest，
+> 那是系统 Python 3.14（没装 pytest），三个变异全部 `rc=1` 且 stdout 为空，
+> 看起来像"变异全被抓住"。必须显式用 `.venv/Scripts/python.exe`，
+> 并且把 stderr 一起打出来，否则得到的是假结论。
+
+### 查询次数是被锁死的
+
+`test_knowledge_service.py` 挂在**引擎**的 `before_cursor_execute` 上数 SQL 语句
+（这是 Connection/Engine 级事件，Session 上没有；Session 的 `do_orm_execute`
+看不到 `selectinload` 发出的语句），断言：
+
+- `list_knowledge` 在 limit=1 和 limit=50 下语句数**完全相同**（都是 4）→ 没有 N+1
+- 空列表只发 2 条（后两条依赖主查询结果，自动跳过）
+- `get_knowledge` 固定 4 条
+
+这既是性能保证，也是文档保证——`knowledge_service.py` 的 docstring 里写的
+就是这几个实测数字，改代码不改测试就会红。
 
 ### 隔离策略：`PKOS_DATA_DIR` 重定向整个数据目录
 
@@ -513,29 +634,44 @@ def port_state(port, host="127.0.0.1"):
 | 默认只监听本机 | `PKOS_HOST=127.0.0.1`。改 `0.0.0.0` 需要用户主动做，且 Blueprint 9.3 要求配防火墙与访问控制，不暴露公网 |
 | 数据不出本机 | 无云同步代码。阶段 2 的 AI 调用遵循最小必要原则：只发当前知识单元，不发全库 |
 | 时间不出错 | `UTCDateTime` 硬拒绝 naive datetime（阶段 3 复习日期正确性的前提） |
+| 搜索词不改写查询语义 | `_fts_phrase()` 把整串包成 FTS5 phrase 并把 `"` 双写；`_like_pattern()` 先转义 `\` 再转义 `%`/`_`，配合 `LIKE ... ESCAPE '\'`。11 种注入载荷（`%` `_` `"` `*` `-` `a"b` `a*` `NEAR(a b)` `梯度 OR 熵` `{` `\`）参数化测试过：`%` 不会匹配全库 |
+| 前端渲染不产生 XSS | 全部走 React 文本节点，没有 `dangerouslySetInnerHTML`；用户原文用 `whitespace-pre-wrap` 保留换行而不是插 HTML |
+| 外链不带 referrer | 学习来源里的外部链接一律 `target="_blank" rel="noreferrer noopener"`，既防 tabnabbing 也不把本机地址泄露给外部站点 |
 
 ---
 
 ## 八、当前实现状态（诚实版）
+
+后端 1925 行 Python，前端 34 个 TS/TSX 文件，测试 271 个。
 
 | 部分 | 状态 |
 |---|---|
 | 配置系统 | ✅ 完整 |
 | 数据库连接与会话 | ✅ 完整（含 WAL、外键、超时 PRAGMA） |
 | 迁移 0001（3 表 + 索引 + FTS5） | ✅ 完整，可 upgrade 可 downgrade |
-| ORM 模型 | ✅ 3 个模型 + `UTCDateTime` |
+| ORM 模型 | ✅ 3 个模型 + `UTCDateTime` + 词表常量 |
 | `/api/health` | ✅ 完整，含降级路径 |
 | 前端静态托管 + SPA 回落 | ✅ 完整 |
 | 前端外壳、路由、响应式导航 | ✅ 完整 |
-| **业务 API（知识 CRUD、搜索）** | ❌ **未实现**（阶段 1） |
-| **`backend/domain/`、`services/`、`schemas/`** | ❌ **空包**，只有 `__init__.py` |
-| **AI 集成** | ❌ 未实现（阶段 2） |
-| **复习系统** | ❌ 未实现（阶段 3） |
-| **知识图谱** | ❌ 未实现（阶段 4） |
-| **备份与导出** | ❌ 未实现（阶段 5） |
-| 6 个业务页面 | ⬜ 诚实占位，明确标注所属阶段 |
+| `backend/domain/versioning.py` | ✅ 完整（100 行纯函数，不 import sqlalchemy/fastapi/pydantic） |
+| `backend/schemas/knowledge.py` | ✅ 完整（274 行，含 `other` 必填备注、纯标点拒绝等跨字段校验） |
+| `backend/services/knowledge_service.py` | ✅ 完整（391 行，CRUD + 追加式版本 + 归档/恢复，查询次数固定） |
+| `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
+| `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
+| 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
+| **AI 集成** | ❌ 未实现（阶段 2）。`/api/health` 恒返回 `ai_configured: false` |
+| **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
+| **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
+| **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
+| 4 个业务页面 | ⬜ 诚实占位，明确标注所属阶段与当前进度 |
 
-**数据库当前 0 行数据**——骨架跑通了，但还没有任何业务写入路径。
+**数据库当前 0 行数据**——阶段 1 的所有写入都发生在临时目录里，
+测试和浏览器实测跑完就删掉了，用户真实的 `data/app.db` 从头到尾没被碰过。
+
+**这一版能做什么、不能做什么**：
+可以完整地「记一条知识 → 改它 → 看到旧版本原文 → 搜回来 → 归档」，
+数据落在本机 SQLite，进程被强杀也不丢（WAL 恢复实测过）。
+不能做任何 AI 相关的事、不能复习、不能建关联、不能备份导出。
 
 ---
 
