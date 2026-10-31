@@ -1,6 +1,7 @@
 import { Construction, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
+import { CURRENT_STAGE } from "@/app/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 type StagePlaceholderProps = {
@@ -8,7 +9,7 @@ type StagePlaceholderProps = {
   title: string
   stage: number
   stageName: string
-  /** 这个页面将来要做什么，逐条列出。阶段 0 不放任何假数据。 */
+  /** 这个页面将来要做什么，逐条列出。未实现的阶段不放任何假数据。 */
   planned: string[]
   children?: ReactNode
 }
@@ -42,8 +43,8 @@ export function StagePlaceholder({
             尚未实现
           </CardTitle>
           <CardDescription>
-            这个页面属于阶段 {stage}。当前是阶段 0（项目骨架），此处不放演示数据，
-            以免把未实现的功能伪装成已完成。
+            这个页面属于阶段 {stage}（{stageName}），目前只做到阶段 {CURRENT_STAGE}。
+            此处不放演示数据，以免把未实现的功能伪装成已完成。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

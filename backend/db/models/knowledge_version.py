@@ -13,9 +13,15 @@ from backend.db.base import Base, UTCDateTime, new_uuid, utcnow
 if TYPE_CHECKING:
     from backend.db.models.knowledge import Knowledge
 
-# user = 用户自己写的；ai_confirmed = 用户确认采纳 AI 建议后生成的新版本
+# user = 用户自己写的；ai_confirmed = 用户确认采纳 AI 建议后生成的新版本。
+#
+# ⚠️ 这里**故意没有 "ai" 这个取值**。AI 不能直接创建版本——所有入库路径都必须
+# 经过一个用户确认动作。这是 Blueprint 1.5 原则 2（原始记录不可被 AI 覆盖）
+# 在枚举值层面的体现，不是遗漏。详见 docs/AI_WORKFLOWS.md 的约束 C2。
 CREATED_BY_USER = "user"
 CREATED_BY_AI_CONFIRMED = "ai_confirmed"
+
+CREATED_BY_VALUES: tuple[str, ...] = (CREATED_BY_USER, CREATED_BY_AI_CONFIRMED)
 
 
 class KnowledgeVersion(Base):

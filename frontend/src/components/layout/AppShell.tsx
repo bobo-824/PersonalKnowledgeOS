@@ -65,6 +65,16 @@ export function AppShell() {
     }
   }, [drawerOpen])
 
+  // Esc 关闭抽屉：遮罩和 X 都是给鼠标和手指的，键盘用户需要一个等价出口
+  useEffect(() => {
+    if (!drawerOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDrawerOpen(false)
+    }
+    document.addEventListener("keydown", onKeyDown)
+    return () => document.removeEventListener("keydown", onKeyDown)
+  }, [drawerOpen])
+
   const current =
     NAV_ITEMS.find((item) =>
       item.to === "/"
@@ -89,12 +99,15 @@ export function AppShell() {
         </footer>
       </aside>
 
-      {/* 移动端顶栏 + 抽屉 */}
+      {/* 移动端顶栏 + 抽屉。图标按钮一律 size-11（44px）：
+          这是 Apple HIG / WCAG 2.5.5 的最小触摸目标，Button 的 icon-sm/icon-lg
+          视觉尺寸（28/36px）在手指下太小，容易点空。 */}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-border bg-background/95 px-3 backdrop-blur lg:hidden">
           <Button
             variant="ghost"
             size="icon-lg"
+            className="size-11"
             aria-label={drawerOpen ? "关闭导航" : "打开导航"}
             aria-expanded={drawerOpen}
             onClick={() => setDrawerOpen((open) => !open)}
@@ -108,7 +121,7 @@ export function AppShell() {
           <div className="fixed inset-0 z-40 lg:hidden">
             <button
               type="button"
-              aria-label="关闭导航"
+              aria-label="关闭导航（点击空白处）"
               className="absolute inset-0 bg-black/50"
               onClick={() => setDrawerOpen(false)}
             />
@@ -121,6 +134,7 @@ export function AppShell() {
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  className="size-11"
                   aria-label="关闭导航"
                   onClick={() => setDrawerOpen(false)}
                 >

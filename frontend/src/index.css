@@ -127,4 +127,13 @@
   html {
     @apply font-sans;
     }
+
+  /* 搜索框自己画了一个 44px 的清空按钮（触摸目标够大）。
+     WebKit/Chromium 还会为 input[type=search] 额外渲染一个原生 ✕，
+     两个会叠在一起，所以把原生的关掉。Firefox 本来就没有。 */
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+    }
 }

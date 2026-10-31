@@ -11,14 +11,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.api.health import router as health_router
+from backend.api.knowledge import router as knowledge_router
 from backend.config import Settings, get_settings
 from backend.db.session import dispose_engine
+from backend.services.knowledge_service import KnowledgeNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +62,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    # service 层用异常表达"不存在"，在这里统一映射成 404，
+    # 免得每个路由函数都写一遍 try/except。
+    @app.exception_handler(KnowledgeNotFound)
+    async def _knowledge_not_found(
+        _request: Request, exc: KnowledgeNotFound
+    ) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
     app.include_router(health_router)
+    # 必须在 _mount_frontend 之前：SPA 回落注册了 /{full_path:path} 这个
+    # 通配路由，FastAPI 按注册顺序匹配，后注册的业务路由会被它抢走。
+    app.include_router(knowledge_router)
     _mount_frontend(app, settings)
     return app
 
