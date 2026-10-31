@@ -1,9 +1,15 @@
 # DATA_MODEL —— 数据模型与字段说明
 
-当前数据库版本：**0001**（阶段 0 建表，阶段 1 的知识库功能已在这些表上跑通）。
-表结构由 `migrations/versions/0001_stage1_knowledge_core.py` 定义，
+当前数据库版本：**0002**（0001 建知识库三表，0002 建阶段 2 的五张 AI 表）。
+表结构由 `migrations/versions/` 下的迁移定义，
 ORM 模型在 `backend/db/models/`，两者必须保持一致
-（用 `uv run alembic check` 验证，不一致会报漂移；阶段 1 收尾实测无漂移）。
+（用 `uv run alembic check` 验证，不一致会报漂移；0002 是手写的，
+写完立刻 check 过，实测无漂移）。
+
+> ⚠️ **0002 的五张表已经建好，但阶段 2 的业务代码还没写。**
+> 现在数据库里它们全是 0 行，没有任何接口会读写它们。
+> 字段级说明在阶段 2 收尾（第⑩步）补进本文件；
+> 目前每张表为什么必须存在，写在各自的 ORM 模型文件顶部注释里。
 
 > 为什么这份说明放这里而不是 `alembic.ini`：Alembic 用**操作系统区域编码**
 > （中文 Windows 是 GBK）读 `alembic.ini`，那个文件里写中文会直接
@@ -27,7 +33,24 @@ knowledge (知识单元主记录)
 
 knowledge_fts (FTS5 虚拟表，全文检索索引，独立表)
    索引 knowledge.title + knowledge_versions.user_understanding
+
+ai_conversations (AI 对话会话)                 ← 迁移 0002，阶段 2
+   │  1
+   └──< ai_messages (单条消息，会话内 seq 递增)
+           数据库级 ON DELETE CASCADE，清空对话历史靠它
+
+ai_reviews (一次 AI 审查的结果，独立存储)       ← 迁移 0002，阶段 2
+   │  指向 knowledge + knowledge_versions（审的是哪一版理解）
+   │  1
+   └──< ai_review_decisions (用户对其中某一条的采纳/忽略/不同意)
+
+idempotency_keys (幂等键 → 已创建的知识)        ← 迁移 0002，阶段 2
+   挡住"确认保存"被重复提交
 ```
+
+**AI 相关的表全是旁路，没有一条核心路径依赖它们**（约束 C4）。
+知识主表和版本表里没有任何指向 AI 表的外键，
+所以把五张 AI 表全删掉，知识库照样能用。
 
 **核心设计**：知识单元本身只存"元数据 + 指向当前版本的指针"，
 **所有理解正文都在 `knowledge_versions` 里**。
@@ -361,9 +384,15 @@ ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 以下是 Blueprint 5.2~5.4 规划、但**当前数据库里还不存在**的表。
 列在这里是为了说明字段设计的连贯性，不要误以为已经实现。
 
+> 阶段 2 的表已在迁移 0002 建好，从这个列表里移走了。
+> **实际建了 5 张，比原计划多 3 张**：`ai_reviews`、`ai_review_decisions`、
+> `idempotency_keys`。原计划只写了 `ai_conversations` / `ai_messages`，
+> 但工作流 C 要求审查结果"独立存储且不写进 knowledge_versions 的任何现有行"、
+> 逐条采纳/忽略的状态要能扛住刷新，Blueprint 验收项又要求"不会重复提交
+> 造成重复记录"，这三件事各需要一张表。理由详见 `DECISIONS.md` 第九节。
+
 | 表 | 阶段 | 关键字段 | 已知风险 |
 |---|---|---|---|
-| `ai_conversations` / `ai_messages` | 2 | 对话与消息，AI 反馈独立存储 | 结构化输出必须过后端 Schema 校验 |
 | `review_schedules` | 3 | FSRS 状态：`stability`、`difficulty`、`due`、`last_review`、`state` | **见下方警告** |
 | `review_sessions` | 3 | 问题、回答、AI 评价、AI 建议评级、**用户最终评级**、耗时 | 用户评级是权威，AI 只是建议 |
 | `knowledge_relations` | 4 | 关系类型、解释、依据、置信度、`status`(pending/accepted/rejected) | 图谱只查 accepted |
