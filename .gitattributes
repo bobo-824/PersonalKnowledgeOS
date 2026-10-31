@@ -1,0 +1,51 @@
+# 统一换行符策略。
+#
+# 这个文件不是可选的装饰：
+#   - start.sh 一旦变成 CRLF，bash 会报 "bad interpreter: /usr/bin/env bash^M" 直接无法启动
+#   - start.ps1 必须是「带 BOM 的 UTF-8 + CRLF」，Windows PowerShell 5.1 对没有 BOM 的文件
+#     按 GBK 解码，中文多字节序列会吃掉后面的引号和大括号，导致解析失败
+# 仓库里统一存 LF，检出时按下面的规则转换。
+
+* text=auto eol=lf
+
+# Windows 专用脚本检出时用 CRLF
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# shell 脚本必须 LF
+*.sh text eol=lf
+
+# 源码与配置：文本，仓库内 LF
+*.py    text eol=lf
+*.ts    text eol=lf
+*.tsx   text eol=lf
+*.js    text eol=lf
+*.jsx   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.toml  text eol=lf
+*.ini   text eol=lf
+*.mako  text eol=lf
+*.md    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+.env.example text eol=lf
+
+# 二进制文件：绝不做换行转换，否则文件会损坏
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.woff   binary
+*.woff2  binary
+*.ttf    binary
+*.eot    binary
+*.pdf    binary
+*.db     binary
+*.sqlite binary
+*.zip    binary

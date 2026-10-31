@@ -1,12 +1,12 @@
 """Alembic 迁移环境。
 
-数据库 URL 从 backend.config 读取而非写死在 alembic.ini；
-测试可用环境变量 PKOS_MIGRATION_DATABASE_URL 指向临时库。
+数据库 URL 从 backend.config 读取而非写死在 alembic.ini，
+这样端口、数据目录和凭据只有一个来源。测试通过设置 PKOS_DATA_DIR
+把整个数据目录重定向到临时目录，迁移自然落到临时库。
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from logging.config import fileConfig
 from pathlib import Path
@@ -42,9 +42,6 @@ def _include_object(obj, name, type_, reflected, compare_to) -> bool:
 
 
 def database_url() -> str:
-    override = os.environ.get("PKOS_MIGRATION_DATABASE_URL")
-    if override:
-        return override
     settings = get_settings()
     # 目录不存在时 SQLite 无法建库文件，迁移前先确保数据目录就位
     settings.ensure_runtime_dirs()

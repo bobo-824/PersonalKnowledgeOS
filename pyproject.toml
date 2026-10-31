@@ -31,6 +31,9 @@ package = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# 本项目不是可安装包（见 [tool.uv] package = false），pytest 默认只把 tests/
+# 放进 sys.path，必须显式加上项目根目录才能 import backend。
+pythonpath = ["."]
 addopts = "-ra --strict-markers"
 filterwarnings = [
     "error::DeprecationWarning:backend.*",
