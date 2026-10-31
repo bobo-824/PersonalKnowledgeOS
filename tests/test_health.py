@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 
+from alembic.script import ScriptDirectory
 from fastapi.testclient import TestClient
+
+from conftest import make_alembic_config
 
 from backend.config import PROJECT_ROOT, get_settings
 from backend.db.session import dispose_engine, init_engine
@@ -19,7 +22,10 @@ def test_health_returns_ok_after_migration(client: TestClient) -> None:
     assert body["status"] == "ok"
     assert body["app_version"]
     assert body["database"]["reachable"] is True
-    assert body["database"]["schema_version"] == "0001"
+    # 不写死版本号，否则每加一个迁移都要回来改这行。
+    # 断言"等于当前 head"同样能抓住"库没升级到最新"这种真问题。
+    heads = list(ScriptDirectory.from_config(make_alembic_config()).get_heads())
+    assert body["database"]["schema_version"] in heads
     assert body["database"]["error"] is None
 
 

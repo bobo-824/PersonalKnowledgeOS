@@ -452,7 +452,7 @@ def isolated_data_dir(tmp_path, monkeypatch):
 ```python
 @pytest.fixture
 def migrated_database(isolated_data_dir):
-    command.upgrade(make_alembic_config(), "head")   # 真实的 0001 迁移
+    command.upgrade(make_alembic_config(), "head")   # 真实的迁移链，不是 create_all()
     ...
 ```
 
@@ -642,14 +642,15 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 1925 行 Python，前端 34 个 TS/TSX 文件，测试 271 个。
+后端 2284 行 Python，前端 34 个 TS/TSX 文件，测试 282 个。
 
 | 部分 | 状态 |
 |---|---|
 | 配置系统 | ✅ 完整 |
 | 数据库连接与会话 | ✅ 完整（含 WAL、外键、超时 PRAGMA） |
 | 迁移 0001（3 表 + 索引 + FTS5） | ✅ 完整，可 upgrade 可 downgrade |
-| ORM 模型 | ✅ 3 个模型 + `UTCDateTime` + 词表常量 |
+| 迁移 0002（5 张 AI 表 + 索引 + 级联） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移 |
+| ORM 模型 | ✅ 8 个模型 + `UTCDateTime` + 词表常量 |
 | `/api/health` | ✅ 完整，含降级路径 |
 | 前端静态托管 + SPA 回落 | ✅ 完整 |
 | 前端外壳、路由、响应式导航 | ✅ 完整 |
@@ -659,14 +660,16 @@ def port_state(port, host="127.0.0.1"):
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| **AI 集成** | ❌ 未实现（阶段 2）。`/api/health` 恒返回 `ai_configured: false` |
+| **AI 集成** | 🚧 阶段 2 进行中：**5 张表已建（迁移 0002），业务代码一行未写**。没有 `services/ai/`，没有任何 AI 调用，`/api/health` 恒返回 `ai_configured: false` |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
 | 4 个业务页面 | ⬜ 诚实占位，明确标注所属阶段与当前进度 |
 
-**数据库当前 0 行数据**——阶段 1 的所有写入都发生在临时目录里，
-测试和浏览器实测跑完就删掉了，用户真实的 `data/app.db` 从头到尾没被碰过。
+**数据库当前 0 行数据**——八张业务表（知识库 3 张 + AI 5 张）全部为空。
+阶段 1 与阶段 2 第①步的所有写入都发生在临时目录里，
+测试和浏览器实测跑完就删掉了，用户真实的 `data/app.db` 只被迁移改过表结构，
+从头到尾没有一行数据。
 
 **这一版能做什么、不能做什么**：
 可以完整地「记一条知识 → 改它 → 看到旧版本原文 → 搜回来 → 归档」，

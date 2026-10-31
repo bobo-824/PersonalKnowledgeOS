@@ -1,11 +1,14 @@
-"""迁移 0001 的结构保证。
+"""迁移的结构保证（0001 知识库 + 0002 AI）。
 
 这些测试盯的是 Blueprint 里几条硬验收项：
 原文不被覆盖、追加式版本、外键真的生效、FTS5 真的建出来了、迁移可回滚。
+0002 增加的部分盯的是：AI 数据独立存储、数据库级级联真的生效、
+幂等键真的能挡住重复提交。
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 import pytest
@@ -19,9 +22,24 @@ from conftest import make_alembic_config
 
 from backend.config import get_settings
 from backend.db.base import utcnow
-from backend.db.models import Knowledge, KnowledgeVersion
+from backend.db.models import (
+    AiConversation,
+    AiMessage,
+    AiReview,
+    AiReviewDecision,
+    IdempotencyKey,
+    Knowledge,
+    KnowledgeVersion,
+)
 
 CORE_TABLES = ["alembic_version", "knowledge", "knowledge_versions", "sources"]
+AI_TABLES = [
+    "ai_conversations",
+    "ai_messages",
+    "ai_reviews",
+    "ai_review_decisions",
+    "idempotency_keys",
+]
 
 
 def table_names(session: Session) -> set[str]:
@@ -222,18 +240,20 @@ def test_downgrade_upgrade_roundtrip_leaves_no_residue(migrated_database) -> Non
     config = make_alembic_config()
     command.downgrade(config, "base")
 
-    # alembic_version 表本身会保留（Alembic 只清空版本行），其余业务表必须全部消失
+    # alembic_version 表本身会保留（Alembic 只清空版本行），
+    # 其余业务表必须全部消失。这里**不按表名前缀白名单过滤**——
+    # 过滤条件写死的话，以后加一张新表忘了改这里，残渣就检测不到了。
     leftover = sorted(
         name
         for name in snapshot()
-        if name.startswith("knowledge") or name == "sources"
+        if name != "alembic_version" and not name.startswith("sqlite_")
     )
     assert not leftover, f"downgrade 之后残留了表：{leftover}"
 
     command.upgrade(config, "head")
 
     restored = snapshot()
-    for name in ("knowledge", "knowledge_versions", "sources", "knowledge_fts"):
+    for name in (*CORE_TABLES, *AI_TABLES, "knowledge_fts"):
         assert name in restored, f"重新 upgrade 后缺少 {name}"
 
     engine = create_engine(url)
@@ -242,10 +262,246 @@ def test_downgrade_upgrade_roundtrip_leaves_no_residue(migrated_database) -> Non
             version = conn.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     finally:
         engine.dispose()
-    assert version == "0001"
+    # 不写死版本号：断言"等于当前 head"，加迁移时这条测试不用改
+    heads = list(ScriptDirectory.from_config(config).get_heads())
+    assert version in heads, f"回滚再升级后版本 {version} 不是最新 {heads}"
 
 
 def test_utcnow_is_timezone_aware() -> None:
     now = utcnow()
     assert now.tzinfo is not None
     assert now.utcoffset().total_seconds() == 0
+
+
+# ---------------------------------------------------------------- 迁移 0002
+
+
+def make_version(session: Session, title: str = "过拟合") -> KnowledgeVersion:
+    """建一条带 v1 的知识，供审查和幂等键的外键测试复用。"""
+    knowledge = Knowledge(title=title, domain="机器学习")
+    session.add(knowledge)
+    session.flush()
+    version = KnowledgeVersion(
+        knowledge_id=knowledge.id,
+        version_number=1,
+        user_understanding="模型记住了训练数据里的噪声",
+    )
+    session.add(version)
+    knowledge.current_version = version
+    session.commit()
+    return version
+
+
+def make_review(session: Session, version: KnowledgeVersion) -> AiReview:
+    review = AiReview(
+        knowledge_id=version.knowledge_id,
+        version_id=version.id,
+        model="fake-model",
+        prompt_version="v1",
+        result_json=json.dumps(
+            {
+                "correct_points": [],
+                "errors": [],
+                "omissions": [],
+                "follow_up_questions": [],
+                "needs_verification": [],
+            }
+        ),
+    )
+    session.add(review)
+    session.commit()
+    return review
+
+
+def test_ai_tables_exist(db_session: Session) -> None:
+    present = table_names(db_session)
+    missing = [name for name in AI_TABLES if name not in present]
+    assert not missing, f"缺少表：{missing}"
+
+
+def test_ai_message_seq_unique_per_conversation(db_session: Session) -> None:
+    """会话内序号重复会让消息顺序出现歧义，必须被唯一约束挡住。"""
+    conversation = AiConversation(title="聊聊梯度下降")
+    db_session.add(conversation)
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            AiMessage(
+                conversation_id=conversation.id, seq=1, role="user", content="什么是梯度下降"
+            ),
+            AiMessage(
+                conversation_id=conversation.id, seq=1, role="assistant", content="重复序号"
+            ),
+        ]
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_same_seq_allowed_across_conversations(db_session: Session) -> None:
+    """唯一约束是 (conversation_id, seq)，不是全局 seq——两个会话都从 1 开始。"""
+    first = AiConversation(title="会话一")
+    second = AiConversation(title="会话二")
+    db_session.add_all([first, second])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            AiMessage(conversation_id=first.id, seq=1, role="user", content="甲"),
+            AiMessage(conversation_id=second.id, seq=1, role="user", content="乙"),
+        ]
+    )
+    db_session.commit()
+
+    assert db_session.execute(text("SELECT COUNT(*) FROM ai_messages")).scalar_one() == 2
+
+
+def test_conversation_delete_cascades_at_database_level(db_session: Session) -> None:
+    """清空对话历史（D-041）靠的是数据库级 CASCADE，不是 ORM 的 delete-orphan。
+
+    所以这里故意用原生 SQL 删除，绕开 ORM。如果 PRAGMA foreign_keys 没打开、
+    或者迁移里漏了 ondelete="CASCADE"，消息就会变成孤儿留在这里。
+    """
+    conversation = AiConversation(title="待清空的会话")
+    db_session.add(conversation)
+    db_session.flush()
+    db_session.add_all(
+        [
+            AiMessage(conversation_id=conversation.id, seq=1, role="user", content="问"),
+            AiMessage(conversation_id=conversation.id, seq=2, role="assistant", content="答"),
+        ]
+    )
+    db_session.commit()
+    conversation_id = conversation.id
+
+    db_session.execute(
+        text("DELETE FROM ai_conversations WHERE id = :id"), {"id": conversation_id}
+    )
+    db_session.commit()
+
+    assert db_session.execute(text("SELECT COUNT(*) FROM ai_messages")).scalar_one() == 0
+
+
+def test_cascaded_conversation_delete_never_touches_knowledge(db_session: Session) -> None:
+    """D-041 的验收项：清空对话历史只删对话，任何知识行都不受影响。"""
+    version = make_version(db_session, title="必须活下来的知识")
+    conversation = AiConversation(title="要清空的会话")
+    db_session.add(conversation)
+    db_session.flush()
+    db_session.add(
+        AiMessage(conversation_id=conversation.id, seq=1, role="user", content="问")
+    )
+    db_session.commit()
+
+    db_session.execute(
+        text("DELETE FROM ai_conversations WHERE id = :id"), {"id": conversation.id}
+    )
+    db_session.commit()
+
+    assert db_session.execute(text("SELECT COUNT(*) FROM knowledge")).scalar_one() == 1
+    assert (
+        db_session.execute(text("SELECT COUNT(*) FROM knowledge_versions")).scalar_one() == 1
+    )
+    assert db_session.get(KnowledgeVersion, version.id) is not None
+
+
+def test_ai_review_decision_unique_per_item(db_session: Session) -> None:
+    """一条审查里的一条条目只允许一个处置，改主意是 UPSERT 不是插新行。"""
+    version = make_version(db_session)
+    review = make_review(db_session, version)
+
+    db_session.add_all(
+        [
+            AiReviewDecision(
+                review_id=review.id, category="errors", item_index=0, decision="accepted"
+            ),
+            AiReviewDecision(
+                review_id=review.id, category="errors", item_index=0, decision="ignored"
+            ),
+        ]
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_same_item_index_allowed_across_categories(db_session: Session) -> None:
+    """唯一约束是 (review_id, category, item_index)：不同类别的第 0 条互不冲突。"""
+    version = make_version(db_session)
+    review = make_review(db_session, version)
+
+    db_session.add_all(
+        [
+            AiReviewDecision(
+                review_id=review.id, category="errors", item_index=0, decision="accepted"
+            ),
+            AiReviewDecision(
+                review_id=review.id, category="omissions", item_index=0, decision="ignored"
+            ),
+        ]
+    )
+    db_session.commit()
+
+    assert (
+        db_session.execute(text("SELECT COUNT(*) FROM ai_review_decisions")).scalar_one() == 2
+    )
+
+
+def test_review_delete_cascades_to_decisions(db_session: Session) -> None:
+    version = make_version(db_session)
+    review = make_review(db_session, version)
+    db_session.add(
+        AiReviewDecision(
+            review_id=review.id, category="errors", item_index=0, decision="disagreed"
+        )
+    )
+    db_session.commit()
+
+    db_session.execute(text("DELETE FROM ai_reviews WHERE id = :id"), {"id": review.id})
+    db_session.commit()
+
+    assert (
+        db_session.execute(text("SELECT COUNT(*) FROM ai_review_decisions")).scalar_one() == 0
+    )
+
+
+def test_ai_review_rejects_unknown_version(db_session: Session) -> None:
+    """审查必须挂在真实存在的版本上，否则说不清它审的是哪一版理解。"""
+    version = make_version(db_session)
+    db_session.add(
+        AiReview(
+            knowledge_id=version.knowledge_id,
+            version_id="不存在的版本ID",
+            model="fake-model",
+            prompt_version="v1",
+            result_json="{}",
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_idempotency_key_blocks_duplicate(db_session: Session) -> None:
+    """Blueprint 阶段 2 验收项：同一个幂等键提交两次只能产生一条知识。"""
+    version = make_version(db_session)
+    db_session.add(
+        IdempotencyKey(key="同一个键", knowledge_id=version.knowledge_id)
+    )
+    db_session.commit()
+
+    db_session.add(
+        IdempotencyKey(key="同一个键", knowledge_id=version.knowledge_id)
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_idempotency_key_rejects_unknown_knowledge(db_session: Session) -> None:
+    db_session.add(IdempotencyKey(key="孤儿键", knowledge_id="不存在的知识ID"))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
