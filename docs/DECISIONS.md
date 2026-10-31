@@ -20,14 +20,26 @@
 
 ### D-002 所有依赖版本锁定到实测通过的稳定版
 
-- **决策**：`pyproject.toml` 用 `==` 精确锁版本；前端 `package.json` 同理。
-- **理由**：这是长期使用的个人工具，稳定性优先于新特性。装依赖时逐个实测，
-  发现两个"最新版"有真实问题：
-  - **TypeScript 7.0.2**：`tsc -b` 的增量构建行为与 5.x 不同，shadcn 生成的
-    `tsconfig.app.json` / `tsconfig.node.json` 项目引用报错。用 **5.9.3**。
-  - **Vite 8.3.7**：`@vitejs/plugin-react` 5.2.0 尚未声明兼容 Vite 8，
-    dev server 的 `/api` 代理在 Windows 上偶发 ECONNRESET。用 **7.3.7**。
-- **代价**：不会自动获得安全更新。升级必须是刻意的动作，改版本后重跑全部验收。
+- **决策**：`pyproject.toml` 用 `==` 精确锁版本；前端 `package.json` 对
+  关键工具链（vite、typescript、tailwindcss、react、radix-ui、zod、
+  @tanstack/react-query、react-router-dom）同样用精确版本，不用 `^`。
+- **理由**：这是长期使用的个人工具，稳定性优先于新特性。
+  锁定的判据是**这一套组合已经端到端实测跑通**：`tsc -b` 零错误、
+  `vite build` 成功、17 个测试全绿、两个启动器三种模式都验证过。
+- **刻意停留在上一个主版本**：写这份文档时 npm 上的最新版是
+  **vite 8.3.5** 和 **typescript 7.0.2**，本项目用 **vite 7.3.7** 和
+  **typescript 5.9.3**。
+  注意这**不是**因为生态不兼容——实测 `@vitejs/plugin-react` 5.2.0 的
+  peerDependencies 是 `^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0`，
+  已经覆盖 Vite 8。
+  停留在 7.x / 5.x 的真实理由是：阶段 0 的任务是搭骨架，
+  在主版本上升级会同时引入构建行为、增量编译语义和 shadcn 生成的
+  `tsconfig` 项目引用三方面的变化，而这三样都还没有业务代码可以验证它们。
+  **零功能收益，纯增风险。**
+- **代价**：不会自动获得安全更新。升级必须是刻意的动作：
+  改版本 → 重跑全部验收（pytest / tsc / vite build / alembic check / 两个启动器）
+  → 在本文件补一条记录说明为什么升。
+  **不要"顺手"把 `^` 加回去**，那会让 `npm install` 在不同时间装出不同版本。
 
 ### D-003 测试用 `httpx2` 而不是 `httpx`
 
