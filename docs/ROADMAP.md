@@ -42,30 +42,41 @@
 **交付成果**：可用的个人知识库。
 **完成标准**：数据持久化、版本可追溯。
 
-计划实施顺序（9 步）：
+计划实施顺序（10 步）。第 1~6 步是后端，第 7~9 步是前端，第 10 步收尾。
 
 | # | 任务 | 关键点 |
 |---|---|---|
-| 1 | `backend/domain/versioning.py` | 追加式版本的核心规则：新版本永不覆盖旧版本 |
-| 2 | `backend/schemas/knowledge.py` | Pydantic 校验；状态与来源类型的取值约束放在这一层 |
-| 3 | `backend/services/knowledge_service.py` | 创建/读取/更新/归档；每次重要修改生成新版本 |
-| 4 | `backend/services/search_service.py` | FTS5 trigram + LIKE 兜底的混合检索（见 DECISIONS） |
-| 5 | `backend/api/knowledge.py` | REST 接口 |
-| 6 | 后端测试 | 覆盖 CRUD、版本追溯、归档、搜索、原文不被覆盖 |
-| 7 | 前端 `lib/api.ts` + 知识库列表页 / 详情页 / 新建编辑表单 | 字段尽量少，避免记录本身成为负担 |
-| 8 | 前端类型检查与构建 | `tsc -b` 零错误 |
-| 9 | 更新文档 | DATA_MODEL、ARCHITECTURE、本文件 |
+| 1 | `backend/domain/versioning.py` | 追加式版本的核心规则。**必须比对实际值**：`user_understanding` / `reasoning` / `open_questions` 三者任一变化才建新版本，否则不建（D-030）。纯函数，不 import sqlalchemy |
+| 2 | `backend/db/models/source.py` 补常量 | `SOURCE_TYPE_BOOK` 等 8 个常量，替换硬编码的 `"other"`（D-029） |
+| 3 | `backend/schemas/knowledge.py` | Pydantic 校验。两套 source_type 词表分别约束；**跨字段校验：`source_type='other'` 时 `note` 必填** |
+| 4 | `backend/services/knowledge_service.py` | 创建/读取/更新/归档；调 domain 层判断是否建新版本 |
+| 5 | `backend/services/search_service.py` | FTS5 trigram + LIKE 兜底的混合检索（D-007）。**FTS5 是独立表，写入路径必须显式同步**（D-006） |
+| 6 | `backend/api/knowledge.py` | REST 接口 + `GET /api/knowledge/domains`（领域去重列表，供自动补全，D-031） |
+| 7 | 后端测试 | 覆盖 CRUD、版本追溯、归档、搜索、原文不被覆盖、**没改理解时不建版本**、**改标题后搜索能找到新标题** |
+| 8 | 前端 `lib/api.ts` + 列表页 / 详情页 / 新建编辑表单 | 字段尽量少。领域输入框用原生 `<datalist>` 做补全 |
+| 9 | 前端类型检查与构建 | `tsc -b` 零错误、`vite build` 成功 |
+| 10 | 更新文档 | DATA_MODEL、ARCHITECTURE、本文件、DECISIONS（若有新决策） |
 
 **阶段 1 验收标准**：
 
 - [ ] 可以创建、查看、编辑和归档知识单元
 - [ ] 知识字段：名称（必填）、所属领域、自己的理解（必填）、理解依据、尚存疑问、学习来源
 - [ ] 用户原始理解不会被覆盖，历史版本可查看
-- [ ] 每次重要修改创建新版本，可查看版本列表
+- [ ] 改「自己的理解 / 理解依据 / 尚存疑问」才创建新版本；**只改标题不产生新版本**
+- [ ] 来源类型是固定 8 种，选「其他」时备注必填，否则接口报错
 - [ ] 中文搜索可用（「梯度」这类 2 字词也能搜到）
+- [ ] **改标题后能搜到新标题、搜不到旧标题**（验证 FTS5 独立表同步没漏）
+- [ ] 领域输入框会提示已用过的领域名
 - [ ] 归档而非物理删除，归档项默认不显示
 - [ ] 应用重启后数据仍然存在
 - [ ] 手机端窄屏下主要流程可完整操作
+
+**已知的诚实限制（验收时要主动说明，不能藏）**：
+
+- **标题的演变历史留不下来**——`title` 在主表上，版本表没有标题快照列。
+  这是用户知情并选择的取舍（D-030），不是 bug。
+- **领域自动补全只能减少、不能消除领域名混乱**——用户仍可无视提示硬打。
+  彻底解决需要建字典表，已否决（D-031）。
 
 ---
 

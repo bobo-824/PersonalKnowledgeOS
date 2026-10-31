@@ -150,6 +150,23 @@ AI 审查后指出遗漏，用户采纳：
 
 测试 `test_original_understanding_survives_new_version` 就是断言这件事。
 
+### 什么时候才创建新版本（阶段 1 的实现约束）
+
+**规则**：`user_understanding`、`reasoning`、`open_questions`
+三者**任一实际值发生变化**时，才创建新版本行。
+
+改 `title` / `domain` / `summary` / `sources` 属于整理性工作，
+**就地 UPDATE，不建版本**。
+
+理由与已知取舍见 `DECISIONS.md` D-030。两条实现上的硬要求：
+
+1. **必须先比对实际值，不能无脑建版本。** 否则"用户点了保存但什么都没改"
+   也会让版本号 +1，制造出假历史。
+2. **`title` 不在版本表里，所以标题的演变历史留不下来。**
+   这是用户明确知情并接受的取舍。如果日后要改，
+   需要给 `knowledge_versions` 加标题快照列并写迁移——
+   现在数据库 0 行，是最便宜的时机。
+
 ---
 
 ## 表：`sources`
@@ -160,17 +177,24 @@ AI 审查后指出遗漏，用户采纳：
 |---|---|---|---|
 | `id` | VARCHAR(36) | PK | UUID 字符串 |
 | `knowledge_id` | VARCHAR(36) | NOT NULL，FK → `knowledge.id`，索引 | 属于哪个知识单元 |
-| `source_type` | VARCHAR(32) | NOT NULL，默认 `other` | 来源类型：书 / 文章 / 视频 / 课程 / 对话 / 其他 |
+| `source_type` | VARCHAR(32) | NOT NULL，默认 `other` | 来源类型，**固定词表**：`book` 书 / `article` 文章 / `video` 视频 / `course` 课程 / `podcast` 播客 / `paper` 论文 / `conversation` 对话 / `other` 其他。见下方说明 |
 | `title` | VARCHAR(300) | NOT NULL | 来源标题 |
 | `url_or_reference` | VARCHAR(1000) | 可空 | 网址或书籍页码等引用位置 |
-| `note` | TEXT | 可空 | 备注 |
+| `note` | TEXT | 可空，**但 `source_type='other'` 时必填** | 备注。选"其他"时必须写清楚到底是什么来源，否则信息就丢了 |
 | `created_at` | DATETIME | NOT NULL | UTC |
 
-> **已知待办**：`sources.source_type` 目前默认值 `"other"` 是硬编码字符串，
-> 还没像 `knowledge.source_type` 那样定义成模块级常量，
-> 取值词表也没定稿（它和 `knowledge.source_type` 是**两套不同的词表**：
-> 前者描述"资料是什么形式"，后者描述"这条知识怎么进系统的"）。
-> 阶段 1 实现 `schemas/knowledge.py` 时一并定稿并加校验。
+> **两套不同的 source_type 词表，不要混用**：
+> - `knowledge.source_type` 描述**这条知识怎么进系统的**：
+>   `manual`（手动记录）/ `conversation`（AI 对话中提取，需用户确认）
+> - `sources.source_type` 描述**资料本身是什么形式**：
+>   书 / 文章 / 视频 / 课程 / 播客 / 论文 / 对话 / 其他
+>
+> 取值约束放在 Pydantic schema 层（`backend/schemas/knowledge.py`），
+> 不做数据库级 CHECK 约束，理由见 `DECISIONS.md` D-005 / D-029。
+>
+> **已知待办**：`sources.source_type` 的默认值 `"other"` 目前是硬编码字符串，
+> 阶段 1 要像 `knowledge.source_type` 那样定义成模块级常量
+> （`SOURCE_TYPE_BOOK` 等），并在 schema 层加"other 时 note 必填"的跨字段校验。
 
 ---
 
