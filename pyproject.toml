@@ -1,0 +1,37 @@
+[project]
+name = "personal-knowledge-os"
+version = "0.1.0"
+description = "个人知识管理与长期学习系统 —— 本地优先，AI 辅助检验理解，FSRS 间隔复习"
+readme = "README.md"
+requires-python = ">=3.13"
+
+# 版本策略：锁定已实测通过的稳定版，升级需 deliberate（见 docs/DECISIONS.md）
+dependencies = [
+    "fastapi==0.162.0",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy==2.1.6",
+    "alembic==1.20.1",
+    "pydantic==2.14.2",
+    "pydantic-settings==2.16.2",
+    "httpx==0.28.1",
+    "fsrs==6.3.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    # Starlette 1.10 起 TestClient 弃用 httpx，改用 httpx2 可消除弃用警告（已实测）
+    "httpx2==2.16.0",
+]
+
+# 本项目是应用而非可发布库，不需要构建后端
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+    "error::DeprecationWarning:backend.*",
+]

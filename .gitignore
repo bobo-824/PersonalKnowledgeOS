@@ -1,0 +1,58 @@
+# ===== 密钥与本地配置 =====
+.env
+.env.*
+!.env.example
+*.secret.json
+*-secret.json
+secrets.*
+api_key*
+
+# ===== 用户数据：绝不提交 =====
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ===== Python =====
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ===== Node / 前端 =====
+node_modules/
+frontend/dist/
+dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ===== 日志与临时文件 =====
+logs/
+*.log
+tmp/
+.tmp/
+
+# ===== 操作系统 =====
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ===== 编辑器 =====
+.idea/
+.vscode/*
+!.vscode/settings.json.example
+*.swp
