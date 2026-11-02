@@ -648,7 +648,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 3078 行 Python，前端 34 个 TS/TSX 文件，测试 349 个。
+后端 3240 行 Python，前端 34 个 TS/TSX 文件，测试 383 个。
 
 | 部分 | 状态 |
 |---|---|
@@ -666,8 +666,8 @@ def port_state(port, host="127.0.0.1"):
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | 🚧 阶段 2 进行中（783 行 / 67 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider 都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身）。**但没有任何业务调用方**：还没有提示词、没有 schemas、没有 service 编排，所以整个阶段 2 对用户仍然不可见 |
-| **AI 集成** | 🚧 5 张表已建、Provider 能发请求，业务代码未写。`/api/health` 仍恒返回 `ai_configured: false`（没人调用它） |
+| `backend/services/ai/` | 🚧 阶段 2 进行中（945 行 / 101 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider + 三个工作流的系统提示词都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`）。**但还没有 Schema、没有 service 编排、没有接口**，所以整个阶段 2 对用户仍然不可见 |
+| **AI 集成** | 🚧 5 张表已建、Provider 能发请求、提示词已就位，但没有任何调用方。`/api/health` 仍恒返回 `ai_configured: false` |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
