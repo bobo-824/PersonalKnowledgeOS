@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_model: str = ""
     ai_timeout_seconds: int = 60
+    # 让服务端用 JSON mode 输出（response_format={"type":"json_object"}）。
+    # 默认关：各家兼容端点对这个字段的支持参差不齐，贸然带上会整批请求 400，
+    # 而在用户填入真实 key 之前我们无法验证。校验反正由 Pydantic 兜底（C3）。
+    ai_json_mode: bool = False
 
     log_level: str = "INFO"
     allow_missing_frontend: bool = True

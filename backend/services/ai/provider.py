@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -63,15 +63,34 @@ class ChatMessage:
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
+@dataclass(frozen=True)
+class AiResult(Generic[ModelT]):
+    """一次结构化调用的结果：校验过的对象 + 这趟花了多少。
+
+    为什么要包一层而不是直接返回模型：`ai_messages` 和 `ai_reviews` 都有
+    `prompt_tokens` / `completion_tokens` / `duration_ms` 三列。
+    token 数只在 HTTP 响应的 `usage` 里，service 层拿不到就永远只能写 NULL，
+    那三列等于白建。耗时由 provider 自己量，免得每个调用方各写一遍计时。
+
+    模型名**不放进来**——它由 `AiProvider.model_id` 单一提供，避免两个来源对不上。
+    """
+
+    value: ModelT
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    duration_ms: int
+
+
 @runtime_checkable
 class AiProvider(Protocol):
     """AI 服务提供方。实现者负责网络、解析、校验和错误分类。
 
     实现必须：
-    - 失败时抛 `errors.py` 里的四个类之一，**不抛裸异常**，
+    - 失败时抛 `errors.py` 里的异常类，**不抛裸异常**，
       否则上层没法区分"该重试"和"该去改 key"。
-    - **不自动重试写操作**（AI_WORKFLOWS 第一节）：提取草稿会产生记录，
-      盲目重试就是重复知识。
+    - **不自动重试**（AI_WORKFLOWS 第一节）：提取草稿会产生记录，
+      盲目重试就是重复知识。读操作也不重试——个人本地应用里
+      「一次失败一次明确报错」比「悄悄重试三次才报错」更好向用户解释。
     """
 
     @property
@@ -84,18 +103,23 @@ class AiProvider(Protocol):
         """
         ...
 
-    def chat(self, messages: Sequence[ChatMessage], schema: type[ModelT]) -> ModelT:
-        """整体请求，返回已通过 `schema` 校验的对象。
+    def chat(
+        self, messages: Sequence[ChatMessage], schema: type[ModelT]
+    ) -> AiResult[ModelT]:
+        """整体请求，返回校验过的对象加上 token/耗时。
 
-         raises: AiUnavailable / AiTimeout / AiAuthRejected / AiSchemaInvalid
+        raises: AiUnavailable / AiTimeout / AiAuthRejected / AiSchemaInvalid
         """
         ...
 
     def stream_chat(self, messages: Sequence[ChatMessage]) -> Iterator[str]:
         """流式请求，产出文本碎片（不是 JSON，也不是校验过的结构）。
 
-        连接阶段的失败照抛四个异常；**流到一半断**属于 AiUnavailable。
+        ⚠️ 这是个**生成器**：连接失败不会在调用 `stream_chat()` 那一刻抛出，
+        而是在第一次 `next()` 时才抛。调用方必须把"开始迭代"也放进 try 里，
+        否则错误会冒到别处去。流到一半断开属于 AiUnavailable。
+
         调用方要负责把碎片拼成完整文本再落库（`ai_messages.content` 存的是
-        最终完整文本，不是碎片）。
+        最终完整文本，不是碎片）。流式响应多数端点不给 token 数，留 NULL。
         """
         ...

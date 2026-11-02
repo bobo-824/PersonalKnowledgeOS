@@ -8,6 +8,7 @@ from backend.db.models.ai_conversation import AiConversation
 from backend.db.models.ai_message import (
     ERROR_KINDS,
     ERROR_KIND_AUTH_REJECTED,
+    ERROR_KIND_BAD_REQUEST,
     ERROR_KIND_SCHEMA_INVALID,
     ERROR_KIND_TIMEOUT,
     ERROR_KIND_UNAVAILABLE,
@@ -73,6 +74,7 @@ __all__ = [
     "DECISION_IGNORED",
     "ERROR_KINDS",
     "ERROR_KIND_AUTH_REJECTED",
+    "ERROR_KIND_BAD_REQUEST",
     "ERROR_KIND_SCHEMA_INVALID",
     "ERROR_KIND_TIMEOUT",
     "ERROR_KIND_UNAVAILABLE",
