@@ -166,10 +166,11 @@ def get_session() -> Generator[Session, None, None]:
 不用额外 refresh）和 `autoflush=False`（flush 时机由 service 显式控制，
 避免"读一个属性意外触发写"这种难查的行为）。
 
-### 这两个配置带来的两个坑（都已实测锁住）
+### 这两个配置带来的三个坑（都已实测锁住）
 
 `expire_on_commit=False` 让对象在 commit 后仍然"新鲜"，代价是 SQLAlchemy
-不会自动帮你刷新已经加载过的状态。阶段 1 踩到两处：
+不会自动帮你刷新已经加载过的状态。**已经实测踩到三次**，
+所以当成一类问题看，而不是三件孤例：
 
 1. **`selectinload` 不会刷新已加载的集合** → `_require()` 和 `list_knowledge()`
    必须带 `.execution_options(populate_existing=True)`，否则第二次读同一条知识
@@ -179,6 +180,14 @@ def get_session() -> Generator[Session, None, None]:
    紧接着的 `sync_index()` 就会把**旧版本的正文**写进 FTS 索引。
    必须外键和关系**两个都赋值**（`knowledge.current_version = version`）。
    这个 bug 在数据库里看不出来（版本行是对的），只有走搜索 API 才暴露。
+3. **同一个 Session 里反复读同一个关系集合，拿到的是陈旧集合** →
+   `ai_service._context_messages` 因此走显式 `select`，
+   不读 `conversation.messages`。生产路径每请求一个新 session 本来侥幸不踩，
+   但把正确性押在"每次都是新 session"上太脆。
+   ⚠️ 这条**是变异测试挖出来的**：改坏过滤器后测试全绿，
+   才查出去过滤的那批数据根本没进到被过滤的集合里（假通过）。
+   修法之外还补了一条正向断言——先证明成功的助手回复**确实在**上下文里，
+   再证明失败那条不在。见 `DECISIONS.md` D-051。
 
 ---
 
@@ -648,7 +657,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 3430 行 Python，前端 34 个 TS/TSX 文件，测试 418 个。
+后端 4051 行 Python，前端 34 个 TS/TSX 文件，测试 448 个。
 
 | 部分 | 状态 |
 |---|---|
@@ -663,12 +672,13 @@ def port_state(port, host="127.0.0.1"):
 | `backend/domain/versioning.py` | ✅ 完整（100 行纯函数，不 import sqlalchemy/fastapi/pydantic） |
 | `backend/schemas/knowledge.py` | ✅ 完整（274 行，含 `other` 必填备注、纯标点拒绝等跨字段校验） |
 | `backend/schemas/ai.py` | ✅ 完成（171 行 / 35 个测试）：提取草稿 + 审查五分类。**校验比落库松**（D-048），`extra="ignore"`（D-047） |
-| `backend/services/knowledge_service.py` | ✅ 完整（391 行，CRUD + 追加式版本 + 归档/恢复，查询次数固定） |
+| `backend/services/knowledge_service.py` | ✅ 完整（432 行，CRUD + 归档/恢复，查询次数固定。追加版本那段已抽成 `append_version()` 供 AI 路径共用，见 D-050） |
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
+| `backend/services/ai_service.py` | 🚧 完成但**无调用方**（578 行 / 30 个测试）：三个工作流的编排、`accept_ai_review()` 窄路径、幂等去重、清空对话历史。还没有任何 HTTP 接口调它 |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | 🚧 阶段 2 进行中（964 行 / 101 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider + 三个工作流的系统提示词都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`）。**但还没有 service 编排和接口**，所以整个阶段 2 对用户仍然不可见 |
-| **AI 集成** | 🚧 5 张表已建、Provider 能发请求、提示词与 Schema 已就位，但没有任何调用方。`/api/health` 仍恒返回 `ai_configured: false` |
+| `backend/services/ai/` | 🚧 阶段 2 进行中（966 行 / 101 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider + 三个工作流的系统提示词都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`） |
+| **AI 集成** | 🚧 后端已经通到"能跑但没人调用"：5 张表已建、Provider 能发请求、提示词与 Schema 就位、`ai_service` 三个工作流可运行（30 个测试验证）。**但没有接口、没有界面**，用户目前完全看不到；`/api/health` 仍恒返回 `ai_configured: false` |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |

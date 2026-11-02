@@ -42,6 +42,7 @@ from backend.db.models import (
 )
 from backend.domain.versioning import (
     Understanding,
+    UnderstandingLike,
     changed_fields,
     next_version_number,
     understanding_changed,
@@ -254,6 +255,69 @@ def list_knowledge(
 # ===== 更新 =====
 
 
+def append_version(
+    session: Session,
+    knowledge: Knowledge,
+    current: UnderstandingLike,
+    effective: Understanding,
+    *,
+    change_reason: str | None,
+    created_by: str,
+    ai_revision: str | None = None,
+) -> KnowledgeVersion | None:
+    """理解真的变了才追加新版本；没变返回 None。
+
+    ⚠️ **这段逻辑只允许有一份。** 手动编辑（`update_knowledge`）和
+    采纳 AI 审查建议（`ai_service.accept_ai_review`）都要追加版本，
+    而这里是全项目最容易写错的两行：
+
+    1. **必须同时赋值外键和关系属性**，不能只改 `current_version_id`。
+       `_require` 已经把 `current_version` 预加载进内存（指向旧版本），
+       而会话配了 `expire_on_commit=False`，只改外键不会让已加载的关系失效。
+       后果是紧接着的 `sync_index` 读到**旧版本**，把过时正文写进索引——
+       表现为"改了理解，但搜索还是命中旧内容"。实测踩过。
+    2. **FTS5 索引必须显式同步**（D-006）。`knowledge_fts` 是独立表，
+       不会自动跟着数据变。
+
+    两处都有专门的测试和变异测试盯着（见 D-037）。
+    复制第二份就等于给这两个坑多一个被漏掉的机会，所以抽成一个函数。
+
+    调用方负责 `sync_index` 和 `commit`：索引同步的次数等于事务数，
+    而不是"改了几处"，免得同一事务里同步两遍。
+    """
+    if not understanding_changed(current, effective):
+        return None
+
+    diff = changed_fields(current, effective)
+    version = KnowledgeVersion(
+        knowledge_id=knowledge.id,
+        version_number=next_version_number(
+            v.version_number for v in knowledge.versions
+        ),
+        user_understanding=effective.user_understanding or "",
+        reasoning=effective.reasoning,
+        open_questions=effective.open_questions,
+        change_reason=change_reason or _describe_change(diff),
+        created_by=created_by,
+        ai_revision=ai_revision,
+    )
+    session.add(version)
+    session.flush()
+
+    knowledge.current_version_id = version.id
+    knowledge.current_version = version
+    session.flush()
+
+    logger.info(
+        "知识单元 %s 理解发生变化，创建版本 v%d（%s，来源=%s）",
+        knowledge.id,
+        version.version_number,
+        version.change_reason,
+        created_by,
+    )
+    return version
+
+
 def update_knowledge(
     session: Session, knowledge_id: str, data: KnowledgeUpdate
 ) -> Knowledge:
@@ -309,39 +373,15 @@ def update_knowledge(
         ),
     )
 
-    # ④ 只有真的变了才追加新版本
-    if understanding_changed(current, effective):
-        diff = changed_fields(current, effective)
-        version = KnowledgeVersion(
-            knowledge_id=knowledge.id,
-            version_number=next_version_number(
-                v.version_number for v in knowledge.versions
-            ),
-            user_understanding=effective.user_understanding or "",
-            reasoning=effective.reasoning,
-            open_questions=effective.open_questions,
-            change_reason=data.change_reason or _describe_change(diff),
-            created_by=CREATED_BY_USER,
-        )
-        session.add(version)
-        session.flush()
-
-        knowledge.current_version_id = version.id
-        # ⚠️ 必须同时更新关系属性，不能只改外键。
-        #
-        # _require 已经把 current_version 预加载进内存了（指向旧版本），
-        # 而会话配了 expire_on_commit=False，只改 current_version_id
-        # **不会**让已加载的关系失效。后果是紧接着的 sync_index 读到旧版本，
-        # 把过时的正文写进 FTS 索引——表现为"改了理解，但搜索还是命中旧内容"。
-        # 实测踩过：数据库里 v2 是对的，索引里却是 v1 的正文。
-        knowledge.current_version = version
-        session.flush()
-        logger.info(
-            "知识单元 %s 理解发生变化，创建版本 v%d（%s）",
-            knowledge.id,
-            version.version_number,
-            _describe_change(diff),
-        )
+    # ④ 只有真的变了才追加新版本（规则和两个已知坑都收在 append_version 里）
+    append_version(
+        session,
+        knowledge,
+        current,
+        effective,
+        change_reason=data.change_reason,
+        created_by=CREATED_BY_USER,
+    )
 
     # ⑤ 标题或正文都可能变了，索引必须同步（D-006）
     sync_index(session, knowledge)
@@ -382,6 +422,7 @@ __all__ = [
     "FIELD_LABELS",
     "IN_PLACE_FIELDS",
     "KnowledgeNotFound",
+    "append_version",
     "archive_knowledge",
     "create_knowledge",
     "get_knowledge",
