@@ -124,7 +124,7 @@
 
 ---
 
-## 阶段 2：AI 教练 🚧 进行中（第 ① 步已完成，共十步）
+## 阶段 2：AI 教练 🚧 进行中（十步已完成前两步）
 
 **5 个前置决策已于 2026-10-31 确认完毕**（见 `docs/DECISIONS.md` 第九节 D-038 ~ D-042，
 逐条对照见 `docs/AI_WORKFLOWS.md` 第十节）：
@@ -152,7 +152,7 @@
 | # | 步骤 | 状态 |
 |---|---|---|
 | ① | 迁移 0002：5 张 AI 表 + ORM 模型 + 迁移测试 | ✅ 已完成 |
-| ② | `services/ai/errors.py` + `provider.py`：四类错误与 AiProvider 协议 | ⬜ |
+| ② | `services/ai/errors.py` + `provider.py`：四类错误与 AiProvider 协议 | ✅ 已完成 |
 | ③ | `openai_compat.py`（httpx）+ `fake.py` 假 Provider | ⬜ |
 | ④ | `prompts.py`：系统提示词 + `PROMPT_VERSION` | ⬜ |
 | ⑤ | `schemas/ai.py`：提取草稿 + 审查五分类 | ⬜ |
@@ -162,7 +162,7 @@
 | ⑨ | 七条硬约束测试 + 一轮变异测试 | ⬜ |
 | ⑩ | 文档、全套验收、提交、汇报 | ⬜ |
 
-**当前进度：停在 ① 和 ② 之间。** 下次继续从 ② 开始。
+**当前进度：停在 ② 和 ③ 之间。** 下次继续从 ③（真实 HTTP 实现 + 假 Provider）开始。
 
 ① 的验收实测：`alembic check` 无漂移；`downgrade 0001` → 五张表干净消失 →
 `upgrade head` → 再无漂移；`test_migrations.py` 从 12 个测试增到 23 个；
@@ -174,6 +174,16 @@
 两处都改成"断言等于当前 head"，以后加迁移不用再回来改。
 回滚测试的残渣检查也从"按表名前缀过滤"改成"除 `alembic_version` 外一张都不许剩"——
 前缀白名单写死的话，将来新增表忘了改就会漏检。
+
+② 的验收实测：新增 16 个测试**不碰数据库也不联网**（0.04 秒跑完，和 `domain/versioning.py`
+一样纯）；全套 **298 passed**；按 D-037 手工注入 5 个变异体——两个异常类共用同一个
+`error_kind`、去掉 `invalid_fields` 的 tuple 归一化、让 `AiTimeout` 不再继承 `AiError`、
+去掉 `ChatMessage` 的角色校验、去掉协议的 `@runtime_checkable`——
+**5 个全部被抓住**（分别让 2 / 1 / 2 / 1 / 3 个测试变红），跑完已从原文恢复并复核。
+
+**这一步还没有任何真实实现**：`backend/services/ai/` 里只有契约（异常类 + 协议 +
+请求侧消息类型），发不出一个 HTTP 请求，`/api/health` 的 `ai_configured` 仍然只看
+`PKOS_AI_API_KEY` 这一个布尔值。
 
 **验收标准**：
 
