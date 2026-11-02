@@ -15,21 +15,23 @@
 分开版本时**忘记给改过的那条 bump**是静默错误（标注的版本号和实际内容不符，
 而这正是排查时唯一能信的东西）；全局版本顶多**多标了一点**，不会说谎。
 
-## 与 schemas 的防漂移约定（第⑤步必须接上）
+## 与 schemas 的防漂移约定
 
 下面 extract / review 两段里写死的 JSON 字段名，必须和
 `backend/schemas/ai.py` 里的模型字段**完全一致**。
 提示词说一套、模型校验另一套，表现是"AI 照提示词老老实实返回，
-却永远过不了校验"，而且报错信息里两边都看不出是对不上的。
-本文件里的字段名先由 `tests/test_ai_prompts.py` 断言存在，
-第⑤步建好模型后再加一条断言"模型字段 == 这批名字"，两头都锁住。
+却永远过不了校验"，而且两边单独看都完全正确、报错里看不出是对不上。
+`tests/test_ai_prompts.py` 断言这批名字出现在提示词里，
+`tests/test_ai_schemas.py` 断言模型字段集合等于这批名字，两头都锁住。
+⚠️ 一致性要**连容器字段一起比**，只比嵌套条目内部等于没比——
+`suggested_sources` 和落库时的 `sources` 就是有意不同名的（DECISIONS D-049）。
 """
 
 from __future__ import annotations
 
 from backend.services.ai.provider import ChatMessage
 
-PROMPT_VERSION = "2026-10-31.1"
+PROMPT_VERSION = "2026-10-31.2"
 
 STUDY_CHAT_SYSTEM_PROMPT = """\
 你是这个个人知识库里的「学习室」陪伴者，不是答题机器。
@@ -67,10 +69,10 @@ EXTRACT_SYSTEM_PROMPT = """\
   "domain": "所属领域，短词，例如「机器学习」",
   "summary": "一到两句概括这条知识在讲什么",
   "user_understanding": "【只能来自用户自己说过的话】",
-  "ai_supplements": "【只有用户没说过、由你补充的内容】",
+  "ai_supplements": ["你补充的每一条，单独一个字符串，一条一件事"],
   "reasoning": "用户提到过的推理依据或他为什么这么想，没有就留空",
   "open_questions": "用户自己提出的、还没解决的问题，没有就留空",
-  "suggested_sources": [{"kind": "book|article|video|course|podcast|paper|conversation|other", "title": "资料名", "url_or_reference": "链接或出处，没有就留空", "note": "备注，没有就留空"}]
+  "suggested_sources": [{"source_type": "book|article|video|course|podcast|paper|conversation|other", "title": "资料名", "url_or_reference": "链接或出处，没有就留空", "note": "备注；source_type 选 other 时必须写清楚是什么来源"}]
 }
 
 ⚠️ `user_understanding` 和 `ai_supplements` 必须严格分开。
@@ -80,10 +82,12 @@ EXTRACT_SYSTEM_PROMPT = """\
 具体要求：
 - `user_understanding` 尽量保留用户原本的用词和语序。
   用户表述不精确**不是**你要修的地方——那种内容属于 `ai_supplements`。
+- `ai_supplements` 是**数组**，一条一个字符串。
+  用户会逐条决定要不要采纳，写成一段就没法单独拒绝某一条。
 - 用户没说的，宁可留空，不要脑补。
   留空是诚实的；脑补出来的理解会被当成用户自己的东西永久保存下去。
 - `suggested_sources` 不许编造。对话里没提过资料就返回空数组。
-  `kind` 只能取上面列出的那八个值之一。
+  `source_type` 只能取上面列出的那八个值之一。
 - 如果这段对话其实还没聊出任何可保存的理解，
   把 `user_understanding` 写成空字符串。
   前端会据此提示用户"这段对话还没形成理解"，这是正常结果，不算失败。
@@ -147,6 +151,23 @@ REVIEW_CATEGORIES_IN_PROMPT: tuple[str, ...] = (
     "follow_up_questions",
     "needs_verification",
 )
+
+# suggested_sources 里每个来源条目的字段名。必须和 schemas.SourceCreate /
+# schemas.SourceDraft 一致——确认保存时要原样喂进去，多一层字段翻译就会多一层错。
+SOURCE_ITEM_FIELDS_IN_PROMPT: tuple[str, ...] = (
+    "source_type",
+    "title",
+    "url_or_reference",
+    "note",
+)
+
+# 审查里每个条目的字段名，同样要和 schemas 对上。
+REVIEW_ITEM_FIELDS_IN_PROMPT: dict[str, tuple[str, ...]] = {
+    "correct_points": ("point", "why"),
+    "errors": ("claim", "correction", "evidence"),
+    "omissions": ("missing", "why_it_matters"),
+    "needs_verification": ("item", "how_to_verify"),
+}
 
 
 def system_message(name: str) -> ChatMessage:
