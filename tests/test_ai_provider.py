@@ -14,6 +14,7 @@ import pytest
 from backend.db.models import ERROR_KINDS
 from backend.services.ai.errors import (
     AiAuthRejected,
+    AiBadRequest,
     AiError,
     AiSchemaInvalid,
     AiTimeout,
@@ -25,7 +26,7 @@ from backend.services.ai.provider import (
     ChatMessage,
 )
 
-ALL_ERRORS = (AiUnavailable, AiTimeout, AiAuthRejected, AiSchemaInvalid)
+ALL_ERRORS = (AiUnavailable, AiTimeout, AiAuthRejected, AiSchemaInvalid, AiBadRequest)
 
 
 def test_error_kinds_exactly_cover_the_database_vocabulary() -> None:
@@ -39,15 +40,15 @@ def test_error_kinds_exactly_cover_the_database_vocabulary() -> None:
 
 
 def test_error_kinds_are_distinct_per_class() -> None:
-    """四个类不能共用同一个 kind，否则分类等于没分。"""
+    """任何一个类都不能和另一个共用同一个 kind，否则分类等于没分。"""
     kinds = [cls.error_kind for cls in ALL_ERRORS]
     assert len(kinds) == len(set(kinds))
 
 
-def test_user_messages_differ_across_the_four_failures() -> None:
-    """四种情况的处置不一样，提示语就必须不一样。
+def test_user_messages_differ_across_the_failures() -> None:
+    """处置不一样的失败，提示语就必须不一样。
 
-    AiAuthRejected 和 AiUnavailable 混起来的话，用户会对一个
+    AiAuthRejected / AiBadRequest 和 AiUnavailable 混起来的话，用户会对一个
     「重试永远没用」的错误一直点重试。
     """
     messages = [cls.user_message for cls in ALL_ERRORS]
@@ -62,7 +63,7 @@ def test_user_messages_never_carry_a_key_shaped_token() -> None:
         assert "=" not in cls.user_message, "提示语里出现了疑似参数拼接的内容"
 
 
-def test_all_four_are_catchable_as_ai_error() -> None:
+def test_all_failures_are_catchable_as_ai_error() -> None:
     """service 层只需要一个 `except AiError` 就能兜住整条 AI 旁路。
 
     漏了共同基类的话，新加一类失败就会一路冒到 API 层变成 500。

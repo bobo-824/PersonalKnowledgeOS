@@ -24,18 +24,23 @@ MESSAGE_ROLE_ASSISTANT = "assistant"
 MESSAGE_ROLES: tuple[str, ...] = (MESSAGE_ROLE_USER, MESSAGE_ROLE_ASSISTANT)
 
 # 调用失败时记**类别**，不记响应体、不记 traceback。
-# 四个值与 services/ai/errors.py 的四个异常类一一对应（AI_WORKFLOWS 第一节：
-# 网络不通 / 超时 / Key 无效 / 返回畸形 JSON，给用户的提示必须不一样）。
+# 与 services/ai/errors.py 的异常类一一对应（AI_WORKFLOWS 第一节：
+# 统一报"AI 出错了"等于没报，用户分不清该重试、该改网络还是该改设置）。
 ERROR_KIND_UNAVAILABLE = "unavailable"
 ERROR_KIND_TIMEOUT = "timeout"
 ERROR_KIND_AUTH_REJECTED = "auth_rejected"
 ERROR_KIND_SCHEMA_INVALID = "schema_invalid"
+# 服务端 4xx 里除了 401/403 的那些（主要是 400）。单独一类是实测前的判断：
+# **模型名写错是新手最容易犯的错**，而它返回 400。如果并进"无法连接"，
+# 用户会去查网络和代理，而真正该改的是设置页里的模型名。
+ERROR_KIND_BAD_REQUEST = "bad_request"
 
 ERROR_KINDS: tuple[str, ...] = (
     ERROR_KIND_UNAVAILABLE,
     ERROR_KIND_TIMEOUT,
     ERROR_KIND_AUTH_REJECTED,
     ERROR_KIND_SCHEMA_INVALID,
+    ERROR_KIND_BAD_REQUEST,
 )
 
 # 用字符串常量而不是 SQLAlchemy Enum，理由见 docs/DECISIONS.md D-005：

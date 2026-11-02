@@ -90,6 +90,7 @@ Blueprint 6.3 规定的五层。**依赖只能从上往下，不能反向，不�
 │  · 编排领域规则 + 数据库访问，管事务边界                    │
 │  · 一个业务动作 = 一个 service 函数 = 一个事务             │
 │  现有：knowledge_service.py, search_service.py         │
+│        ai/  ← AI 旁路子包（Provider 契约 + 实现 + 假替身）│
 └──────────┬────────────────────────────┬──────────────┘
            │ 使用规则                     │ 读写
 ┌──────────▼─────────────┐  ┌────────────▼─────────────┐
@@ -108,6 +109,11 @@ Blueprint 6.3 规定的五层。**依赖只能从上往下，不能反向，不�
 因此 `test_versioning.py` 的 17 个测试不需要数据库、不需要 TestClient，
 实测 **0.04 秒**跑完。反过来，一旦有人图省事在 domain 里 import ORM 模型，
 这批测试会立刻因为要建库而变慢。
+
+同一件事在 AI 旁路上也成立：`test_ai_provider.py` + `test_ai_provider_http.py`
+的 67 个测试用 `httpx.MockTransport` 打假响应，**不联网、不需要 API key、不建库**，
+实测 **0.23 秒**跑完。这是 D-038「测试一律用假 Provider」在时间上的兑现——
+如果 AI 调用被织进了主干而不是旁路，这批测试不可能这么快。
 
 ### 各层职责边界
 
@@ -642,7 +648,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 2485 行 Python，前端 34 个 TS/TSX 文件，测试 298 个。
+后端 3078 行 Python，前端 34 个 TS/TSX 文件，测试 349 个。
 
 | 部分 | 状态 |
 |---|---|
@@ -660,8 +666,8 @@ def port_state(port, host="127.0.0.1"):
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | 🚧 阶段 2 进行中：**契约已定（`errors.py` 四类失败 + `provider.py` 协议，201 行，16 个测试全绿且不碰数据库不联网）**。还**没有任何真实实现**——没有 `openai_compat.py`，发不出一次 HTTP 请求 |
-| **AI 集成** | 🚧 5 张表已建（迁移 0002）、Provider 契约已定，业务代码未写。`/api/health` 仍恒返回 `ai_configured: false` |
+| `backend/services/ai/` | 🚧 阶段 2 进行中（783 行 / 67 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider 都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身）。**但没有任何业务调用方**：还没有提示词、没有 schemas、没有 service 编排，所以整个阶段 2 对用户仍然不可见 |
+| **AI 集成** | 🚧 5 张表已建、Provider 能发请求，业务代码未写。`/api/health` 仍恒返回 `ai_configured: false`（没人调用它） |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |

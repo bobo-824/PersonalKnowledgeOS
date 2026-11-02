@@ -153,7 +153,7 @@
 |---|---|---|
 | ① | 迁移 0002：5 张 AI 表 + ORM 模型 + 迁移测试 | ✅ 已完成 |
 | ② | `services/ai/errors.py` + `provider.py`：四类错误与 AiProvider 协议 | ✅ 已完成 |
-| ③ | `openai_compat.py`（httpx）+ `fake.py` 假 Provider | ⬜ |
+| ③ | `openai_compat.py`（httpx）+ `fake.py` 假 Provider | ✅ 已完成 |
 | ④ | `prompts.py`：系统提示词 + `PROMPT_VERSION` | ⬜ |
 | ⑤ | `schemas/ai.py`：提取草稿 + 审查五分类 | ⬜ |
 | ⑥ | `ai_service.py`：对话/提取/审查/`accept_ai_review()` 窄路径 | ⬜ |
@@ -162,7 +162,7 @@
 | ⑨ | 七条硬约束测试 + 一轮变异测试 | ⬜ |
 | ⑩ | 文档、全套验收、提交、汇报 | ⬜ |
 
-**当前进度：停在 ② 和 ③ 之间。** 下次继续从 ③（真实 HTTP 实现 + 假 Provider）开始。
+**当前进度：停在 ③ 和 ④ 之间。** 下次继续从 ④（系统提示词 + 版本号）开始。
 
 ① 的验收实测：`alembic check` 无漂移；`downgrade 0001` → 五张表干净消失 →
 `upgrade head` → 再无漂移；`test_migrations.py` 从 12 个测试增到 23 个；
@@ -181,9 +181,21 @@
 去掉 `ChatMessage` 的角色校验、去掉协议的 `@runtime_checkable`——
 **5 个全部被抓住**（分别让 2 / 1 / 2 / 1 / 3 个测试变红），跑完已从原文恢复并复核。
 
-**这一步还没有任何真实实现**：`backend/services/ai/` 里只有契约（异常类 + 协议 +
-请求侧消息类型），发不出一个 HTTP 请求，`/api/health` 的 `ai_configured` 仍然只看
-`PKOS_AI_API_KEY` 这一个布尔值。
+**这一步只有契约，还没有实现**：`backend/services/ai/` 里当时只有异常类 + 协议 +
+请求侧消息类型，发不出一个 HTTP 请求。（③ 已经把真实实现补上了。）
+
+③ 的验收实测：新增 51 个测试，全部用 `httpx.MockTransport` 打假响应，
+**不联网、不需要 key**（0.18 秒跑完）；全套 **349 passed**；
+`ai/` 子包 783 行。按 D-037 注入 5 个变异体——建连超时不再优先判 `ConnectTimeout`、
+校验失败时把收到的**值**写进字段名、不剥 markdown 围栏、404 归进"无法连接"、
+`response_format` 变成无条件发送——**5 个全部被抓住**（最后一个被 3 个测试抓住）。
+
+③ 偏离设计文档三处，都已记录：
+**D-044** 失败分类从四类扩到五类（模型名写错返回 400，归进"无法连接"会把新手
+引向查网络这条错路）；**D-045** JSON mode 默认关闭而不是"优先用"（没有真实 key
+就无法验证兼容性，贸然无条件带上会让所有请求一起 400）；
+**D-046** 解析校验抽成 `parsing.py` 让假 Provider 复用同一份代码
+（否则"C3 畸形输出不许写库"的测试只是在测桩，生产解析路径一行都没验证过）。
 
 **验收标准**：
 

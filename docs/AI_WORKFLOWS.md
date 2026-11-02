@@ -59,22 +59,37 @@ AI 调用的结果**先进内存里的草稿对象**，用户确认后才落库�
 
 ```
 backend/services/ai/
-├── provider.py       AiProvider 协议：chat(messages, schema) -> 结构化结果
+├── provider.py       AiProvider 协议 + ChatMessage + AiResult（校验过的结果带 token/耗时）
 ├── openai_compat.py  HTTP 实现，用 httpx，支持自定义 base_url
-└── errors.py         AiUnavailable / AiTimeout / AiSchemaInvalid
+├── parsing.py        解析 + Pydantic 校验，真实实现和假实现共用（D-046）
+├── fake.py           可编程假 Provider：全部测试靠它，不联网不需要 key
+└── errors.py         AiUnavailable / AiTimeout / AiAuthRejected / AiBadRequest / AiSchemaInvalid
 ```
 
 关键设计点：
 
-- **`chat()` 的返回类型是 Pydantic 模型，不是原始字符串**。
+- **`chat()` 返回 `AiResult`，里面装着已校验的 Pydantic 模型**。
   解析和校验在 provider 层完成，调用方拿到的永远是合法结构。
   这样 C3 就落在一处，不会每个工作流各写一遍解析。
+  包一层而不是直接返回模型，是因为 `usage` 里的 token 数只在 HTTP 响应里，
+  而 `ai_messages` / `ai_reviews` 都有 token 和耗时三列要填（D-046 顺带解决）。
 - **超时来自 `PKOS_AI_TIMEOUT_SECONDS`（默认 60 秒）**。
   AI 慢是常态，超时值必须可配。
-- **失败分类要清楚**：网络不通 / 超时 / 返回畸形 JSON / Key 无效，
-  四种情况给用户的提示不一样。统一报"AI 出错了"等于没报。
-- **不自动重试写操作**。提取草稿这类会产生记录的操作，
-  重试可能造成重复记录（Blueprint 阶段 2 验收项明确禁止）。
+  **建连超时单独收紧到 10 秒**：主机不可达时不该让"无法连接"这句话等满 60 秒。
+- **失败分类要清楚**：网络不通 / 超时 / Key 无效 / **请求被拒** / 返回畸形内容。
+  每类给用户的提示不一样，因为**处置不一样**。统一报"AI 出错了"等于没报。
+  ⚠️ 比本节原稿多了一类 `AiBadRequest`：模型名写错返回 400、
+  base_url 少写 `/v1` 返回 404，这是新手最常见的两个错，
+  并进"无法连接"会把排查方向彻底带偏。理由见 **DECISIONS D-044**。
+- **不自动重试**（原稿写的是"不自动重试写操作"，实现里**读操作也不重试**）。
+  写操作重试会造成重复记录（Blueprint 阶段 2 验收项明确禁止）；
+  读操作不重试是因为个人本地应用里，
+  「一次失败 + 一句明确报错」比「悄悄重试三次才报错」更好向用户解释。
+- **URL 手工拼接，不交给 httpx 的 `base_url`**：
+  httpx 拼路径是字节相加，`base_url="https://x/v1"` 配 `/chat/completions`
+  会得到 `https://x/v1chat/completions`。这个坑静默发生、只有真机联调才暴露。
+- **`response_format` 默认不带**（偏离本节原稿的"优先用 JSON mode"），
+  由 `PKOS_AI_JSON_MODE` 控制。理由见 **DECISIONS D-045**。
 
 ### 设置页（阶段 2）
 
@@ -324,10 +339,18 @@ AI 原始返回（字符串）
 
 ### 实现建议
 
-- 优先用 provider 的 JSON mode / structured output 能力
-- 但**不能假设它一定返回合法 JSON**，② 这一步永远要有
+- ~~优先用 provider 的 JSON mode / structured output 能力~~
+  → **实现成默认关闭**（`PKOS_AI_JSON_MODE=false`，确认后手动开）。
+  兼容端点对 `response_format` 的支持参差不齐，贸然无条件带上会让所有请求一起
+  400；而在用户填入真实 key 之前无法验证他那家支不支持。见 **DECISIONS D-045**
+- 但**不能假设它一定返回合法 JSON**，② 这一步永远要有 ——
+  正因为 JSON mode 默认关着，这一条从"兜底"升级成了**唯一保障**
 - 校验失败的原始返回**不要存进数据库**（可能包含意外内容），
-  只在日志里记字段名和错误类型
+  只在日志里记字段名和错误类型。
+  ⚠️ 落地时有个具体的坑：Pydantic 的 `ValidationError.errors()` 里
+  **`input` 字段装着实际收到的值**，那可能就是用户的知识正文。
+  所以取字段路径时**只读 `loc`，绝不读 `input`**
+  （`parsing._invalid_field_names`，有专门的测试盯着这条）
 
 ### 提示词管理
 
@@ -343,13 +366,19 @@ AI 原始返回（字符串）
 
 ## 八、失败与降级
 
-| 情况 | 表现 | 用户能做什么 |
+| 情况 | 异常类 | 用户能做什么 |
 |---|---|---|
-| 未配置 Key | `/api/health` 的 `ai_configured: false` | 全部手动功能照常。AI 相关按钮显示"未配置"并链到设置页 |
-| 网络不通 / 超时 | 明确报"无法连接 AI 服务"，附 base_url（不含 key） | 重试，或检查网络/代理 |
-| Key 无效 | 明确报"API Key 被拒绝" | 去设置页改 |
-| 返回畸形 JSON | 报"AI 返回内容无法解析" | 重试。**不写库** |
-| 模型能力不足 | 结构化输出反复校验失败 | 提示用户换模型 |
+| 未配置 Key | （不构造 Provider） | `/api/health` 的 `ai_configured: false`；全部手动功能照常，AI 按钮显示"未配置"并链到设置页 |
+| 连不上（DNS/代理/对方宕机/连接被重置/**建连超时**） | `AiUnavailable` | 明确报"无法连接 AI 服务，请检查网络或代理"，附 base_url（不含 key） |
+| 连上了但响应超时 | `AiTimeout` | 明确报"响应超时"。**重试往往有效**，或去设置页调大超时 |
+| Key 被拒（401/403） | `AiAuthRejected` | 明确报"API Key 被拒绝"。去设置页改——**重试永远没用** |
+| 请求被拒（其他 4xx，含 400/404） | `AiBadRequest` | 明确报"AI 服务拒绝了这个请求，请检查模型名和 API 地址"，附状态码。**去查设置，不是查网络**（D-044） |
+| 返回畸形内容（不是 JSON / 缺字段 / 类型错 / 枚举非法） | `AiSchemaInvalid` | 报"AI 返回内容无法解析"。重试。**不写库**（C3） |
+| 模型能力不足 | 表现为反复 `AiSchemaInvalid` | 提示用户换模型 |
+
+⚠️ **建连超时故意归进 `AiUnavailable` 而不是 `AiTimeout`**：
+`httpx.ConnectTimeout` 同时继承这两个基类，按"超时"分类会引导用户去做一件
+没用的事（调大超时秒数），而真正的问题是连不上。捕获顺序必须先判它。
 
 **核心要求（C4）**：以上任何一种情况，
 **手动记录知识、浏览已有知识、搜索、查看版本历史、复习列表，全部照常可用。**

@@ -1,7 +1,11 @@
-"""AI 旁路失败的四个分类。
+"""AI 旁路失败的分类。
 
-四类失败给用户的提示**必须不一样**（AI_WORKFLOWS 第一节）：
-统一报「AI 出错了」等于没报——用户分不清该重试、该改网络、还是该去设置页换 key。
+每类失败给用户的提示**必须不一样**（AI_WORKFLOWS 第一节）：
+统一报「AI 出错了」等于没报——用户分不清该重试、该改网络、该改模型名、还是该去设置页换 key。
+
+⚠️ 原本设计只有四类（网络不通 / 超时 / Key 无效 / 畸形 JSON）。实现时补了第五类
+`AiBadRequest`：**模型名写错返回 400**，这是新手最容易踩的，而归进"无法连接"
+会把人引向完全错误的排查方向。详见 docs/DECISIONS.md。
 
 ## ⚠️ 隐私硬约束（C6），改这个文件前先读
 
@@ -22,6 +26,7 @@ from typing import ClassVar
 
 from backend.db.models import (
     ERROR_KIND_AUTH_REJECTED,
+    ERROR_KIND_BAD_REQUEST,
     ERROR_KIND_SCHEMA_INVALID,
     ERROR_KIND_TIMEOUT,
     ERROR_KIND_UNAVAILABLE,
@@ -33,8 +38,8 @@ class AiError(Exception):
 
     `error_kind` 直接复用 `ai_messages.error_kind` 列的词表，
     这样 service 层捕获异常后不需要写一串 if/elif 去翻译成字符串——
-    翻译表就长在异常类上，加一类失败时编译器会提醒漏了对应关系
-    （`tests/test_ai_provider.py` 断言四个 kind 恰好覆盖词表，不多不少）。
+    翻译表就长在异常类上，加一类失败时测试会提醒漏了对应关系
+    （`tests/test_ai_provider.py` 断言异常类上的 kind 恰好覆盖列词表，不多不少）。
     """
 
     error_kind: ClassVar[str]
@@ -92,3 +97,23 @@ class AiSchemaInvalid(AiError):
     def __init__(self, invalid_fields: tuple[str, ...], detail: str | None = None) -> None:
         self.invalid_fields = tuple(invalid_fields)
         super().__init__(detail or "字段校验失败：" + ", ".join(self.invalid_fields))
+
+
+class AiBadRequest(AiError):
+    """服务端返回 4xx（401/403 除外）：它听懂了连接，但拒绝这个请求。
+
+    **这一类必须和 `AiUnavailable` 分开**，因为它在个人项目里的高频成因是
+    「设置页的模型名写错」和「base_url 少写了 /v1」——这两种情况的解法都是
+    去改设置，而不是去查网络。并进"无法连接"会把用户引到完全错的方向。
+
+    响应体里的错误说明（`error.message`）常常正好点出问题，
+    但那是服务端生成的自由文本，可能包含我们发过去的字段名甚至片段，
+    所以**只取 HTTP 状态码**放进 detail，正文一个字都不带。
+    """
+
+    error_kind = ERROR_KIND_BAD_REQUEST
+    user_message = "AI 服务拒绝了这个请求，请检查设置页里的模型名和 API 地址。"
+
+    def __init__(self, status_code: int | None = None, detail: str | None = None) -> None:
+        self.status_code = status_code
+        super().__init__(detail or f"服务端返回状态码 {status_code}")
