@@ -157,7 +157,8 @@ PersonalKnowledgeOS/
 │   ├── main.py            应用入口，同时托管 API 和前端页面
 │   ├── api/               接口层：health.py、knowledge.py
 │   ├── schemas/           Pydantic 校验与序列化
-│   ├── services/          应用服务：knowledge_service.py、search_service.py
+│   ├── services/          应用服务：knowledge_service.py、search_service.py、
+│   │                      ai/（阶段 2 的 AI 旁路，目前只有契约，还没接真实服务）
 │   ├── domain/            纯业务规则：versioning.py（不 import 数据库和 Web 框架）
 │   └── db/                数据库：ORM 模型、会话、列类型
 │

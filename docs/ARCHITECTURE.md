@@ -642,7 +642,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 2284 行 Python，前端 34 个 TS/TSX 文件，测试 282 个。
+后端 2485 行 Python，前端 34 个 TS/TSX 文件，测试 298 个。
 
 | 部分 | 状态 |
 |---|---|
@@ -660,7 +660,8 @@ def port_state(port, host="127.0.0.1"):
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| **AI 集成** | 🚧 阶段 2 进行中：**5 张表已建（迁移 0002），业务代码一行未写**。没有 `services/ai/`，没有任何 AI 调用，`/api/health` 恒返回 `ai_configured: false` |
+| `backend/services/ai/` | 🚧 阶段 2 进行中：**契约已定（`errors.py` 四类失败 + `provider.py` 协议，201 行，16 个测试全绿且不碰数据库不联网）**。还**没有任何真实实现**——没有 `openai_compat.py`，发不出一次 HTTP 请求 |
+| **AI 集成** | 🚧 5 张表已建（迁移 0002）、Provider 契约已定，业务代码未写。`/api/health` 仍恒返回 `ai_configured: false` |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
