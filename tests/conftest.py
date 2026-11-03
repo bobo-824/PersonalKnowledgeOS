@@ -16,7 +16,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
 
-from backend.config import PROJECT_ROOT, get_settings
+from backend.config import PROJECT_ROOT, get_settings, reset_settings_cache
 from backend.db.session import dispose_engine, init_engine, open_session
 from backend.main import create_app
 
@@ -51,11 +51,11 @@ def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterat
     monkeypatch.setenv("PKOS_AI_API_KEY", "")
     monkeypatch.setenv("PKOS_AI_BASE_URL", "")
     monkeypatch.setenv("PKOS_AI_MODEL", "")
-    get_settings.cache_clear()
+    reset_settings_cache()
     try:
         yield data_dir
     finally:
-        get_settings.cache_clear()
+        reset_settings_cache()
 
 
 @pytest.fixture
