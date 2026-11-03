@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from conftest import make_alembic_config
 
-from backend.config import PROJECT_ROOT, get_settings
+from backend.config import PROJECT_ROOT, get_settings, reset_settings_cache
 from backend.db.session import dispose_engine, init_engine
 from backend.main import create_app
 
@@ -54,7 +54,8 @@ def test_health_never_leaks_api_key(
     sentinel = "sk-TEST-DO-NOT-LEAK-1234567890"
     monkeypatch.setenv("PKOS_AI_API_KEY", sentinel)
     monkeypatch.setenv("PKOS_AI_BASE_URL", "https://example.invalid/v1")
-    get_settings.cache_clear()
+    monkeypatch.setenv("PKOS_AI_MODEL", "example-model")
+    reset_settings_cache()
 
     settings = get_settings()
     assert settings.ai_api_key == sentinel, "夹具没能覆盖 AI 密钥"
@@ -66,10 +67,12 @@ def test_health_never_leaks_api_key(
             response = test_client.get("/api/health")
     finally:
         dispose_engine()
-        get_settings.cache_clear()
+        reset_settings_cache()
 
     assert response.status_code == 200
-    # 只暴露“配没配”，不暴露内容
+    # 只暴露“配没配”，不暴露内容。
+    # 判据是 base_url + model（和 factory 同一个），**不看 key**：
+    # 本地 Ollama 没有 key 也照样算配好了。
     assert response.json()["ai_configured"] is True
     assert sentinel not in response.text
     assert "example.invalid" not in response.text

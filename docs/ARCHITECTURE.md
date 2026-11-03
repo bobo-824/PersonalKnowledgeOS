@@ -166,11 +166,11 @@ def get_session() -> Generator[Session, None, None]:
 不用额外 refresh）和 `autoflush=False`（flush 时机由 service 显式控制，
 避免"读一个属性意外触发写"这种难查的行为）。
 
-### 这两个配置带来的三个坑（都已实测锁住）
+### 这两个配置带来的四个坑（都已实测锁住）
 
 `expire_on_commit=False` 让对象在 commit 后仍然"新鲜"，代价是 SQLAlchemy
-不会自动帮你刷新已经加载过的状态。**已经实测踩到三次**，
-所以当成一类问题看，而不是三件孤例：
+不会自动帮你刷新已经加载过的状态。**已经实测踩到四次**，
+所以当成一类问题看，而不是四件孤例：
 
 1. **`selectinload` 不会刷新已加载的集合** → `_require()` 和 `list_knowledge()`
    必须带 `.execution_options(populate_existing=True)`，否则第二次读同一条知识
@@ -188,6 +188,15 @@ def get_session() -> Generator[Session, None, None]:
    才查出去过滤的那批数据根本没进到被过滤的集合里（假通过）。
    修法之外还补了一条正向断言——先证明成功的助手回复**确实在**上下文里，
    再证明失败那条不在。见 `DECISIONS.md` D-051。
+4. **写入之后再返回同一个对象，关系集合可能是空的** →
+   `ai_service.get_review()` 内部显式 `session.refresh(review, ["decisions"])`，
+   让"交出去的 `decisions` 永远是库里现在的样子"成为一条**契约**，
+   因为接口层每次记完处置都要把整份审查返回去。
+   ⚠️ 这条同样是变异测试挖出来的，但形态不同：删掉 refresh 后**全部测试仍然绿**——
+   现存调用点恰好都在写入之后才第一次读那个集合，没踩到。
+   于是补了一条主动构造"先读集合 → 再写处置 → 再读"的测试
+   （`test_get_review_always_returns_the_current_decisions`）。
+   **有契约却没有测试兜着，那行代码的含义就只是某个人的猜测。** 见 D-058。
 
 ---
 
@@ -394,15 +403,22 @@ queries: {
 ## 五、测试架构
 
 ```
-tests/                            271 个测试（各文件收集数相加 == 全量运行数）
+tests/                            569 个测试（各文件收集数相加 == 全量运行数）
 ├── conftest.py               夹具（全部走真实迁移 + 临时目录）
 ├── test_health.py            /api/health 的语义与隐私（5）
-├── test_migrations.py        迁移结构与数据完整性保证（12）
+├── test_migrations.py        迁移结构与数据完整性保证（23）
 ├── test_versioning.py        domain 层版本规则的纯函数测试（17）
 ├── test_schemas.py           Pydantic 校验与 422 报文（50）
 ├── test_search_index.py      服务层：转义、索引一致性、索引修复（32）
 ├── test_knowledge_service.py 服务层：版本号推导、N+1 查询次数（14）
-└── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（141）
+├── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（141）
+├── test_ai_provider.py       Provider 契约与五类失败（18，不建库不联网）
+├── test_ai_provider_http.py  httpx 真实实现（51，全部 MockTransport，不联网）
+├── test_ai_prompts.py        提示词与词表/Schema 的交叉锁定（34，不建库不联网）
+├── test_ai_schemas.py        C3 边界：草稿与五分类（35，不建库不联网）
+├── test_ai_service.py        编排层：C1/C2/C3/C5 + 幂等 + 窄路径（31）
+├── test_ai_api.py            AI 的 12 个端点 + SSE + 错误映射（64）
+└── test_settings_api.py      设置读写 + .env 写入规矩 + 密钥掩码（54）
 ```
 
 分层是有意的：domain 的纯函数测试跑得最快也最容易定位，
@@ -657,7 +673,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 4051 行 Python，前端 34 个 TS/TSX 文件，测试 448 个。
+后端 5562 行 Python，前端 34 个 TS/TSX 文件，测试 569 个（14 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
@@ -674,11 +690,16 @@ def port_state(port, host="127.0.0.1"):
 | `backend/schemas/ai.py` | ✅ 完成（171 行 / 35 个测试）：提取草稿 + 审查五分类。**校验比落库松**（D-048），`extra="ignore"`（D-047） |
 | `backend/services/knowledge_service.py` | ✅ 完整（432 行，CRUD + 归档/恢复，查询次数固定。追加版本那段已抽成 `append_version()` 供 AI 路径共用，见 D-050） |
 | `backend/services/search_service.py` | ✅ 完整（333 行，FTS5 + LIKE 混合检索、索引同步/修复、领域建议、相似标题） |
-| `backend/services/ai_service.py` | 🚧 完成但**无调用方**（578 行 / 30 个测试）：三个工作流的编排、`accept_ai_review()` 窄路径、幂等去重、清空对话历史。还没有任何 HTTP 接口调它 |
+| `backend/services/ai_service.py` | ✅ 完整（617 行 / 31 个测试）：三个工作流的编排、`accept_ai_review()` 窄路径、幂等去重、清空对话历史。**第⑦步起已有 HTTP 调用方** |
+| `backend/services/settings_service.py` | ✅ 完成（332 行）：`.env` 行级替换 + 备份 + 原子写 + 清配置缓存 + 密钥掩码（D-053~D-057）。54 个测试 |
+| `backend/api/ai.py` | ✅ 12 个端点：会话增删查、SSE 对话、提取、确认草稿、审查增删查、处置、采纳。64 个测试 |
+| `backend/api/settings.py` | ✅ 3 个端点：`GET/PUT /api/settings/ai`、`POST /api/settings/ai/test` |
+| `backend/api/deps.py` | ✅ `get_provider` 依赖：每请求新建 Provider、请求结束必关（协议里已有 `close()`） |
+| `backend/schemas/ai_api.py` | ✅ 完成（291 行）：AI 接口的请求/响应模型。和 `schemas/ai.py`（C3 边界）分文件，理由写在该文件顶部 |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | 🚧 阶段 2 进行中（966 行 / 101 个测试）：**契约 + 真实 HTTP 实现 + 假 Provider + 三个工作流的系统提示词都已就位**（`provider.py` 协议、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`） |
-| **AI 集成** | 🚧 后端已经通到"能跑但没人调用"：5 张表已建、Provider 能发请求、提示词与 Schema 就位、`ai_service` 三个工作流可运行（30 个测试验证）。**但没有接口、没有界面**，用户目前完全看不到；`/api/health` 仍恒返回 `ai_configured: false` |
+| `backend/services/ai/` | ✅ 完整（1135 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`、`factory.py` 按配置构造 + 连通性探测 |
+| **AI 集成** | 🚧 **后端全通、界面还没有**：三个工作流能从 HTTP 一路跑到数据库（建会话 → SSE 对话 → 提取草稿 → 确认成知识 → 审查 → 逐条处置 → 采纳出新版本），设置页接口也写好了。但 4 个页面仍是占位，**用户目前在浏览器里点不到任何 AI 功能**；而且整条链路**还没对真实 AI 服务发过一次请求**（D-038：没有 key 只能测假 Provider） |
 | **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |

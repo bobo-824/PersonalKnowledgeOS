@@ -152,6 +152,9 @@ class _GoodProvider:
     def stream_chat(self, messages):
         raise NotImplementedError
 
+    def close(self) -> None:
+        return None
+
 
 class _NoStreaming:
     @property
@@ -161,8 +164,28 @@ class _NoStreaming:
     def chat(self, messages, schema):
         raise NotImplementedError
 
+    def close(self) -> None:
+        return None
+
 
 class _NoModelId:
+    def chat(self, messages, schema):
+        raise NotImplementedError
+
+    def stream_chat(self, messages):
+        raise NotImplementedError
+
+    def close(self) -> None:
+        return None
+
+
+class _NoClose:
+    """少了 close：接口层的依赖无法保证连接被释放。"""
+
+    @property
+    def model_id(self) -> str:
+        return "fake-model"
+
     def chat(self, messages, schema):
         raise NotImplementedError
 
@@ -182,3 +205,21 @@ def test_missing_stream_chat_does_not_satisfy_the_protocol() -> None:
 def test_missing_model_id_does_not_satisfy_the_protocol() -> None:
     """model_id 要落进 ai_reviews.model（NOT NULL），缺了就是运行时炸。"""
     assert not isinstance(_NoModelId(), AiProvider)
+
+
+def test_missing_close_does_not_satisfy_the_protocol() -> None:
+    """真实实现持有 httpx 连接池。契约里没有 close，上层就只能 hasattr 猜，
+    而"忘了关"会表现为静默的 socket 泄漏——比编译错误难查得多。"""
+    assert not isinstance(_NoClose(), AiProvider)
+
+
+def test_both_shipped_providers_satisfy_the_protocol() -> None:
+    """协议改了，两个真实实现必须同时跟上（假实现不能例外，测试走的就是它）。"""
+    from backend.services.ai.fake import FakeProvider
+    from backend.services.ai.openai_compat import OpenAICompatProvider
+
+    assert isinstance(FakeProvider(), AiProvider)
+    assert isinstance(
+        OpenAICompatProvider(base_url="http://127.0.0.1:1/v1", api_key="", model="m"),
+        AiProvider,
+    )

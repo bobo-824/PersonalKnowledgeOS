@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import shutil
@@ -293,11 +294,64 @@ def check_frontend_build(report: Report) -> None:
         )
 
 
+def read_env_text() -> tuple[str | None, str | None]:
+    """读 .env 的文本。返回 (文本, 错误说明)，两者只有一个不是 None。
+
+    刻意**严格**按 UTF-8 解码而不是 errors="replace"：本项目的 .env 里全是中文注释，
+    而 Windows 的 Notepad「另存为」默认用 ANSI(GBK)。那种文件会让后端在读配置时
+    直接抛 UnicodeDecodeError，进程根本起不来——自检必须在这一项上说实话，
+    replace 掉的话这里就永远看不出问题。
+    """
+    env = PROJECT_ROOT / ".env"
+    if not env.exists():
+        return None, None
+    for encoding in ("utf-8-sig", "utf-8"):
+        try:
+            return env.read_text(encoding=encoding), None
+        except UnicodeDecodeError as exc:
+            problem = f"{encoding} 解码失败（第 {exc.start} 字节起：{exc.reason}）"
+        except OSError as exc:
+            problem = f"读不出来：{type(exc).__name__}: {exc}"
+            break
+    return None, problem
+
+
+def parse_env_values(text: str) -> dict[str, str]:
+    """取 `KEY=value` 的成对值。注释行和 `export ` 前缀都认。
+
+    这里只是自检用的最小解析，不追求和 python-dotenv 一模一样：
+    本文件必须在 `uv sync` 之前也能跑，所以不能依赖任何第三方库。
+    """
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[len("export ") :].strip()
+        if "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        values[key.strip()] = value.strip().strip('"').strip("'")
+    return values
+
+
 def check_env_file(report: Report) -> None:
     env = PROJECT_ROOT / ".env"
     example = PROJECT_ROOT / ".env.example"
-    if env.exists():
-        report.add(".env 配置文件", PASS, "已存在（该文件被 Git 忽略，不会提交）")
+    text, error = read_env_text()
+
+    if error is not None:
+        report.add(
+            ".env 配置文件",
+            FAIL,
+            f"存在但读不出文本：{error}",
+            "用编辑器把 .env 另存为 UTF-8 编码（VS Code 右下角点编码名 → Save with encoding → UTF-8）；"
+            "或者删掉它，让它按 .env.example 的默认值重新生成",
+        )
+        return
+    if text is not None:
+        report.add(".env 配置文件", PASS, "已存在且可按 UTF-8 读取（该文件被 Git 忽略，不会提交）")
     elif example.exists():
         report.add(
             ".env 配置文件",
@@ -307,6 +361,90 @@ def check_env_file(report: Report) -> None:
         )
     else:
         report.add(".env 配置文件", WARN, ".env 与 .env.example 都不存在")
+
+
+def check_ai_config(report: Report) -> None:
+    """AI 配置的完整性。⚠️ 全部只报 WARN，不报 FAIL（DECISIONS D-027）。
+
+    理由：没配 AI 是这个产品的**合法状态**——阶段 2 的硬约束 C4 就是
+    "不配 AI，记录、检索、复习这些核心功能必须照常可用"。
+    把它报成 FAIL 会让人以为环境坏了。
+    """
+    text, error = read_env_text()
+    if error is not None:
+        # 编码问题已经在 check_env_file 里报 FAIL，这里不重复
+        return
+    values = parse_env_values(text) if text else {}
+
+    base_url = values.get("PKOS_AI_BASE_URL", "")
+    model = values.get("PKOS_AI_MODEL", "")
+    api_key = values.get("PKOS_AI_API_KEY", "")
+
+    if not base_url and not model and not api_key:
+        report.add(
+            "AI 服务配置",
+            WARN,
+            "未配置（记录、检索、复习不受影响，AI 检验与提取暂不可用）",
+            "启动后打开 设置 页填写并保存，或直接编辑 .env 里的 PKOS_AI_BASE_URL / PKOS_AI_MODEL / PKOS_AI_API_KEY",
+        )
+        return
+
+    missing = [
+        name
+        for name, value in (("PKOS_AI_BASE_URL", base_url), ("PKOS_AI_MODEL", model))
+        if not value
+    ]
+    if missing:
+        report.add(
+            "AI 服务配置",
+            WARN,
+            f"配了一半，还缺 {', '.join(missing)}",
+            "发请求需要 API 地址和模型名两项都齐；密钥只有本地端点（Ollama 等）可以不填",
+        )
+        return
+
+    detail = f"地址 {base_url}，模型 {model}，密钥{'已填' if api_key else '未填'}"
+    if not api_key and not _is_local_endpoint(base_url):
+        report.add(
+            "AI 服务配置",
+            WARN,
+            detail + "：远程服务一般都需要密钥",
+            "在设置页填入 PKOS_AI_API_KEY；只有本地 Ollama / LM Studio 这类端点可以不填",
+        )
+        return
+    if base_url.rstrip("/").endswith("/v1") or "/v1/" in base_url:
+        report.add("AI 服务配置", PASS, detail + "（地址写法正确，含 /v1）")
+        return
+    report.add(
+        "AI 服务配置",
+        WARN,
+        detail + "：地址结尾没有 /v1",
+        "OpenAI 兼容端点的地址通常要填到版本路径为止，例如 https://api.deepseek.com/v1。"
+        "少了 /v1 会得到「请求被拒绝」，那不是密钥错了",
+    )
+
+
+def _is_local_endpoint(base_url: str) -> bool:
+    return "://127." in base_url or "://localhost" in base_url or "://0.0.0.0" in base_url
+
+
+def check_env_var_shadowing(report: Report) -> None:
+    """真实环境变量优先于 .env。这一条专门说给"改了却没生效"的人听。
+
+    用户可能为了别的项目在系统环境变量里配过 PKOS_AI_*，
+    那时后设置页写进 .env 的值**不会生效**——
+    不说清楚，症状看起来就是"这个程序有 bug"。
+    """
+    shadowed = [key for key in os.environ if key.startswith("PKOS_AI_")]
+    if not shadowed:
+        return
+    report.add(
+        "AI 配置来源",
+        WARN,
+        f"进程环境里有 {len(shadowed)} 个 PKOS_AI_* 变量：{', '.join(sorted(shadowed))}",
+        "环境变量优先级高于 .env。设置页保存的这些项不会生效，"
+        "要改就改环境变量（系统设置 → 环境变量），或者删掉它们再用设置页",
+    )
 
 
 def check_data_dir(report: Report) -> None:
@@ -534,6 +672,8 @@ def build_report() -> Report:
     check_frontend_deps(report)
     check_frontend_build(report)
     check_env_file(report)
+    check_ai_config(report)
+    check_env_var_shadowing(report)
     check_data_dir(report)
     check_ports(report)
     check_migrations(report)

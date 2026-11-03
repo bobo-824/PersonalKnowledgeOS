@@ -281,7 +281,7 @@ def test_confirm_draft_with_blank_understanding_is_rejected(db_session: Session)
 
 def test_confirm_draft_creates_one_knowledge_with_conversation_source(db_session: Session) -> None:
     draft = KnowledgeDraft.model_validate(DRAFT_JSON)
-    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-1")
+    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-1").knowledge
 
     assert knowledge.source_type == "conversation"
     assert knowledge.current_version.version_number == 1
@@ -294,7 +294,7 @@ def test_ai_supplements_never_enter_the_saved_understanding(db_session: Session)
     """⚠️ C1 最容易悄悄失守的地方：只要第⑥步把 ai_supplements 拼到理解后面，
     功能上看起来一切正常，但这条记录就说不清是谁说的了。"""
     draft = KnowledgeDraft.model_validate(DRAFT_JSON)
-    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-c1")
+    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-c1").knowledge
 
     assert "AI 补的一句" not in knowledge.current_version.user_understanding
     assert knowledge.current_version.user_understanding == DRAFT_JSON["user_understanding"]
@@ -307,7 +307,11 @@ def test_confirm_draft_is_idempotent(db_session: Session) -> None:
     first = ai_service.confirm_draft(db_session, draft, idempotency_key="same-key")
     second = ai_service.confirm_draft(db_session, draft, idempotency_key="same-key")
 
-    assert second.id == first.id
+    assert second.knowledge.id == first.knowledge.id
+    # replayed 必须由 service 说清楚：接口层靠它区分 201（真新建）和 200（重放）。
+    # 如果这里两边都是 False，"查"和"做"就分家了，重复记录的风险会藏在接口层里。
+    assert first.replayed is False
+    assert second.replayed is True
     assert db_session.scalar(select(IdempotencyKey)) is not None
     assert len(db_session.scalars(select(Knowledge)).all()) == 1
 
@@ -323,7 +327,7 @@ def test_confirmed_draft_is_searchable(db_session: Session) -> None:
     """落库要走完 FTS 同步。索引没同步的话记录存在却搜不到，
     而数据库里看着完全正常——阶段 1 实测踩过的坑。"""
     draft = KnowledgeDraft.model_validate(DRAFT_JSON)
-    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-fts")
+    knowledge = ai_service.confirm_draft(db_session, draft, idempotency_key="key-fts").knowledge
     assert "每步往下降最快的方向走一小步" in fts_body(db_session, knowledge.id)
 
 
@@ -425,6 +429,33 @@ def test_review_item_can_be_overtyped_not_duplicated(db_session: Session) -> Non
 def test_review_lookup_rejects_unknown_id(db_session: Session) -> None:
     with pytest.raises(ai_service.ReviewNotFound):
         ai_service.get_review(db_session, "不存在")
+
+
+def test_get_review_always_returns_the_current_decisions(db_session: Session) -> None:
+    """契约：`get_review` 交出去的 `decisions` 永远是**库里现在的样子**。
+
+    ⚠️ 接口层"记完处置把整份审查返回去"就依赖这条契约。
+    本项目的 Session 配了 `expire_on_commit=False`，同一个 Session 里
+    已经加载过的关系集合不会自动刷新——先读集合、再写处置、再返回，
+    响应就会**少一条刚写进去的**，用户看到的现象是"点了采纳但按钮没反应"。
+
+    这条测试是变异测试补出来的：删掉 `get_review` 里的 refresh，
+    当时全部测试仍然绿——因为现存路径恰好都在写入之后才第一次读那个集合。
+    "碰巧没踩到"不是契约，所以这里主动构造一次先读后写。
+    """
+    knowledge = make_knowledge(db_session, "过拟合", "我的理解")
+    provider = FakeProvider().queue(REVIEW_JSON)
+    review = ai_service.review_knowledge(db_session, provider, knowledge.id)
+
+    # 先把集合加载进来：此刻它是空的
+    assert list(review.decisions) == []
+
+    ai_service.decide_review_item(db_session, review.id, "errors", 0, "accepted")
+
+    refreshed = ai_service.get_review(db_session, review.id)
+    assert [(d.category, d.item_index, d.decision) for d in refreshed.decisions] == [
+        ("errors", 0, "accepted")
+    ]
 
 
 def test_accept_ai_review_appends_a_version_without_touching_the_original(db_session: Session) -> None:

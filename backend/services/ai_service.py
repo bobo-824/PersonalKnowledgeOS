@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -60,7 +62,6 @@ logger = logging.getLogger(__name__)
 MAX_CONTEXT_MESSAGES = 40
 
 # 会话标题从第一条用户消息截断而来，列宽是 String(100)
-_TITLE_SOURCE_LENGTH = 60
 _TITLE_MAX_LENGTH = 100
 
 
@@ -78,6 +79,19 @@ class ReviewItemNotFound(LookupError):
 
 class EmptyDraftError(ValueError):
     """草稿里没有任何可保存的理解。"""
+
+
+@dataclass(frozen=True)
+class DraftConfirmation:
+    """确认草稿的结果。
+
+    为什么不让接口层自己查幂等键再决定返回 201 还是 200：
+    "查"和"做"分在两处写，就有对不上的可能，而重复记录正是阶段 2 的验收禁止项。
+    去重规则只有 `confirm_draft` 一份，重放与否由它一起说出来。
+    """
+
+    knowledge: Knowledge
+    replayed: bool
 
 
 # ================================================================ 会话与消息
@@ -138,6 +152,11 @@ def stream_reply(
 
     之所以先提交用户消息：如果 AI 挂了，用户那句话仍然在，
     不会因为"助手没回"而把他的输入一起丢掉。
+
+    `duration_ms` 由这里量：`ai_messages.duration_ms` 那一列不该永远空着。
+    两个 token 列对流式消息**确实是 NULL**——token 数只在非流式响应的
+    `usage` 里，流式基本不给（见 `provider.stream_chat` 的说明），
+    这不是遗漏，是协议限制；结构化调用（提取/审查）的 token 数记在 `ai_reviews`。
     """
     conversation = get_conversation(session, conversation_id)
     _append_message(session, conversation, MESSAGE_ROLE_USER, user_text)
@@ -145,6 +164,7 @@ def stream_reply(
 
     request = _conversation_request(session, conversation)
     collected: list[str] = []
+    started = time.perf_counter()
 
     try:
         for chunk in provider.stream_chat(request):
@@ -160,6 +180,7 @@ def stream_reply(
             exc.user_message,
             provider=provider,
             error_kind=exc.error_kind,
+            duration_ms=_elapsed_ms(started),
         )
         session.commit()
         logger.warning("会话 %s 的 AI 调用失败：%s", conversation.id, exc.error_kind)
@@ -171,6 +192,7 @@ def stream_reply(
         MESSAGE_ROLE_ASSISTANT,
         content,
         provider=provider,
+        duration_ms=_elapsed_ms(started),
     )
     session.commit()
 
@@ -233,7 +255,7 @@ def draft_to_create_payload(draft: KnowledgeDraft) -> dict:
 
 def confirm_draft(
     session: Session, draft: KnowledgeDraft, *, idempotency_key: str
-) -> Knowledge:
+) -> DraftConfirmation:
     """用户确认草稿，这才第一次落库。
 
     ⚠️ **幂等**：Blueprint 阶段 2 验收项要求"不会重复提交造成重复记录"。
@@ -253,12 +275,16 @@ def confirm_draft(
     existing = session.get(IdempotencyKey, idempotency_key)
     if existing is not None:
         logger.info("幂等键命中，返回已创建的知识 %s", existing.knowledge_id)
-        return get_knowledge(session, existing.knowledge_id)
+        return DraftConfirmation(
+            knowledge=get_knowledge(session, existing.knowledge_id), replayed=True
+        )
 
     knowledge = create_knowledge(session, KnowledgeCreate.model_validate(draft_to_create_payload(draft)))
     session.add(IdempotencyKey(key=idempotency_key, knowledge_id=knowledge.id))
     session.commit()
-    return get_knowledge(session, knowledge.id)
+    return DraftConfirmation(
+        knowledge=get_knowledge(session, knowledge.id), replayed=False
+    )
 
 
 # ================================================================ 工作流 C
@@ -302,6 +328,12 @@ def get_review(session: Session, review_id: str) -> AiReview:
     review = session.get(AiReview, review_id)
     if review is None:
         raise ReviewNotFound(review_id)
+    # ⚠️ 显式刷新 decisions 集合。本项目的 Session 配了 expire_on_commit=False，
+    # 同一个请求里"先读审查、再插入一条处置、再把审查返回去"时，
+    # 不刷新的话响应里会**少掉刚写入的那条处置**——
+    # 用户看到的现象是"点了采纳但按钮没反应"。
+    # 阶段 1 已经在这个坑上摔过三次，这次把它焊在唯一的读取入口上。
+    session.refresh(review, attribute_names=["decisions"])
     return review
 
 
@@ -488,6 +520,7 @@ def _append_message(
     *,
     provider: AiProvider | None = None,
     error_kind: str | None = None,
+    duration_ms: int | None = None,
 ) -> AiMessage:
     seq = next_version_number(
         session.scalars(select(AiMessage.seq).where(AiMessage.conversation_id == conversation.id))
@@ -499,12 +532,17 @@ def _append_message(
         content=content,
         model=provider.model_id if provider is not None else None,
         error_kind=error_kind,
+        duration_ms=duration_ms,
     )
     session.add(message)
     # 每追加一条都要顶一下 updated_at，历史列表按它倒序排
     conversation.updated_at = utcnow()
     session.flush()
     return message
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((time.perf_counter() - started) * 1000)
 
 
 def _category_items(result: ReviewResult, category: str) -> list:
@@ -559,6 +597,7 @@ def _render_item(item: object) -> str:
 
 __all__ = [
     "ConversationNotFound",
+    "DraftConfirmation",
     "EmptyDraftError",
     "accept_ai_review",
     "clear_conversation_history",

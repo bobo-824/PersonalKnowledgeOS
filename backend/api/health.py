@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings, get_settings
 from backend.db.session import get_session
+from backend.services.ai.factory import is_configured
 
 router = APIRouter(tags=["health"])
 
@@ -46,6 +47,9 @@ def health(
             "path": str(settings.database_path),
             "error": error,
         },
-        "ai_configured": bool(settings.ai_api_key),
+        # "能不能发请求"的定义只有 factory 一份。
+        # 原先这里写的是 bool(ai_api_key)，而 key 对本地 Ollama 是不需要的，
+        # 两处判断不一致时前端会显示"未配置"却照样能对话。
+        "ai_configured": is_configured(settings),
         "frontend_built": (settings.frontend_dist / "index.html").exists(),
     }
