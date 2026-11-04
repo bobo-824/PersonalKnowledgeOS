@@ -1,15 +1,36 @@
+import { lazy } from "react"
 import { createBrowserRouter } from "react-router-dom"
 
 import { AppShell } from "@/components/layout/AppShell"
-import { AiStudyRoomPage } from "@/pages/AiStudyRoomPage"
 import { HomePage } from "@/pages/HomePage"
-import { KnowledgeDetailPage } from "@/pages/KnowledgeDetailPage"
-import { KnowledgeEditPage } from "@/pages/KnowledgeEditPage"
-import { KnowledgeGraphPage } from "@/pages/KnowledgeGraphPage"
-import { KnowledgeListPage } from "@/pages/KnowledgeListPage"
-import { NotFoundPage } from "@/pages/NotFoundPage"
-import { ReviewCenterPage } from "@/pages/ReviewCenterPage"
-import { SettingsPage } from "@/pages/SettingsPage"
+
+// 除首页外的页面全部懒加载（分包）：首屏只下载首页和外壳，
+// 其余页面等导航到时才下载各自的包。首页保持静态导入，
+// 让浏览器能立刻渲染首屏，不出现"打开应用先转一圈加载"。
+const KnowledgeListPage = lazy(() =>
+  import("@/pages/KnowledgeListPage").then((m) => ({ default: m.KnowledgeListPage })),
+)
+const KnowledgeDetailPage = lazy(() =>
+  import("@/pages/KnowledgeDetailPage").then((m) => ({ default: m.KnowledgeDetailPage })),
+)
+const KnowledgeEditPage = lazy(() =>
+  import("@/pages/KnowledgeEditPage").then((m) => ({ default: m.KnowledgeEditPage })),
+)
+const AiStudyRoomPage = lazy(() =>
+  import("@/pages/AiStudyRoomPage").then((m) => ({ default: m.AiStudyRoomPage })),
+)
+const ReviewCenterPage = lazy(() =>
+  import("@/pages/ReviewCenterPage").then((m) => ({ default: m.ReviewCenterPage })),
+)
+const KnowledgeGraphPage = lazy(() =>
+  import("@/pages/KnowledgeGraphPage").then((m) => ({ default: m.KnowledgeGraphPage })),
+)
+const SettingsPage = lazy(() =>
+  import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
+)
+const NotFoundPage = lazy(() =>
+  import("@/pages/NotFoundPage").then((m) => ({ default: m.NotFoundPage })),
+)
 
 export const router = createBrowserRouter([
   {

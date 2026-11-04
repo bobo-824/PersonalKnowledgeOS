@@ -171,7 +171,8 @@ async function readErrorBody(response: Response): Promise<unknown> {
   }
 }
 
-function httpErrorFrom(response: Response, body: unknown): ApiError {
+/** 供 ai-api.ts 的 SSE 通道复用：非 2xx 响应体的翻译规则必须完全一致。 */
+export function httpErrorFrom(response: Response, body: unknown): ApiError {
   const detail =
     typeof body === "object" && body !== null && "detail" in body
       ? (body as { detail: unknown }).detail

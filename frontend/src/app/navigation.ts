@@ -18,7 +18,7 @@ export type NavItem = {
 }
 
 /** 已经落地到哪个阶段。占位页要对用户说实话，所以每完成一个阶段就得改这里。 */
-export const CURRENT_STAGE = 1
+export const CURRENT_STAGE = 2
 
 export const NAV_ITEMS: NavItem[] = [
   {

@@ -9,6 +9,7 @@ import {
 import { Link, useNavigate, useParams } from "react-router-dom"
 
 import { ApiErrorNotice, EmptyState, Notice } from "@/components/feedback/Notice"
+import { ReviewSection } from "@/components/ai/ReviewSection"
 import { VersionHistory } from "@/components/knowledge/VersionHistory"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -188,6 +189,15 @@ export function KnowledgeDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* AI 审查：意见要逐条表态，采纳后由用户重写成新版本（工作流 C） */}
+      {current && !isArchived && (
+        <ReviewSection
+          knowledgeId={knowledge.id}
+          currentVersionNumber={current.version_number}
+          currentUnderstanding={current.user_understanding}
+        />
+      )}
 
       {/* 学习来源 */}
       <section className="flex flex-col gap-2">
