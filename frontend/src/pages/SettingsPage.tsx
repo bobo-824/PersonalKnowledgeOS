@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { PlugZap, Save } from "lucide-react"
+import { DatabaseBackup, Download, PlugZap, Save } from "lucide-react"
 
 import { ApiErrorNotice, Notice } from "@/components/feedback/Notice"
 import { Badge } from "@/components/ui/badge"
@@ -16,6 +16,8 @@ import { Label } from "@/components/ui/label"
 import { testAiConnection } from "@/lib/ai-api"
 import { AI_ERROR_KIND_HINTS, type AiConnectionTest } from "@/lib/ai-schemas"
 import { useAiConfig, useUpdateAiConfig } from "@/lib/ai-queries"
+import { useBackups, useCreateBackup } from "@/lib/backup-queries"
+import { formatDateTime } from "@/lib/format"
 
 /**
  * AI 设置页。密钥**只能写进去、读不出来**（C6）：输入框留空 = 不修改，
@@ -259,6 +261,8 @@ export function SettingsPage() {
         </CardContent>
       </Card>
 
+      <BackupExportCard />
+
       <Notice tone="info">
         <p>向 AI 发送的数据范围（最小必要原则）：</p>
         <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
@@ -268,5 +272,86 @@ export function SettingsPage() {
         </ul>
       </Notice>
     </div>
+  )
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * 备份与导出（D-068/D-069）。备份在每次启动时自动做一份，
+ * 这里列出现有的、提供手动补一份的按钮。**没有"恢复"按钮**：
+ * 恢复等于整库替换文件，做成一键操作的风险收益完全不成立，
+ * 要恢复就关掉应用、手动替换 data/app.db、再启动。
+ */
+function BackupExportCard() {
+  const { data, isPending, error } = useBackups()
+  const createMutation = useCreateBackup()
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>备份与导出</CardTitle>
+        <CardDescription>
+          每次启动应用都会自动备份一份完整数据库到 data/backups/，
+          保留最近 {data?.keep_count ?? 7} 份，更早的自动清理。
+          想恢复哪份就关掉应用，用它替换 data/app.db，再启动。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <ApiErrorNotice error={error ?? createMutation.error} />
+
+        {createMutation.isSuccess && (
+          <Notice tone="success">
+            <p>已备份：{createMutation.data.filename}</p>
+          </Notice>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="min-h-11 px-4"
+            disabled={createMutation.isPending}
+            onClick={() => createMutation.mutate()}
+          >
+            <DatabaseBackup aria-hidden="true" />
+            {createMutation.isPending ? "备份中…" : "立即备份"}
+          </Button>
+          <Button variant="outline" className="min-h-11 px-4" asChild>
+            <a href="/api/export/markdown" download>
+              <Download aria-hidden="true" />
+              导出 Markdown
+            </a>
+          </Button>
+          <Button variant="outline" className="min-h-11 px-4" asChild>
+            <a href="/api/export/json" download>
+              <Download aria-hidden="true" />
+              导出 JSON
+            </a>
+          </Button>
+        </div>
+
+        {isPending ? (
+          <p className="text-sm text-muted-foreground">正在读取备份列表…</p>
+        ) : data && data.backups.length > 0 ? (
+          <ul className="flex flex-col gap-1 text-sm">
+            {data.backups.map((backup) => (
+              <li key={backup.filename} className="flex flex-wrap justify-between gap-2">
+                <span className="font-mono text-xs">{backup.filename}</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatDateTime(backup.created_at)} · {formatSize(backup.size_bytes)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            还没有备份。点上面的「立即备份」做第一份，或重启一次应用。
+          </p>
+        )}
+      </CardContent>
+    </Card>
   )
 }
