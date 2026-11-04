@@ -288,6 +288,28 @@ scheduler = Scheduler(enable_fuzzing=False)   # 测试必须关掉抖动
   这是 Blueprint 9.2「系统时间变化、跨日和时区转换不会导致复习日期错乱」
   的技术保证。
 
+### 实现落地（阶段 3 第⑤步，2026-11-04）
+
+上图是设计，落到代码后有三处与流程图**刻意不同**，都是省一次请求费或守约束：
+
+1. **评价与建议合成一次调用**。流程图的 ④"评估回答"和"建议评级"没有拆成
+   两轮对话——`stream_reply` 追问时按会话 `kind` 自动用 `review_chat`
+   提示词（不提前泄露答案、一次只问一个、不给评级），用户觉得有数了就
+   主动点"要评级建议"，后端把对话原文 + 当前理解收尾发给 AI，
+   用 `review_rate` 提示词要一个 `RatingSuggestion` JSON
+   （`suggested_rating` + `evaluation`），过 C3 校验后返回。
+2. **建议不落库（C7 的强化）**。`suggest_review_rating` 不写任何表；
+   用户提交评级时才把建议作为 `suggested_rating` 存档进 `review_sessions`。
+   排期计算只读 `rating`（服务层固定 now 的对照测试 + HTTP 层同秒对比测试锁定）。
+3. **开场零残留**。`start_review_chat` 先流式拿到首问，成功后才建会话落库。
+   AI 挂了什么都不留——如果留一个空会话壳在历史里，"降级成纯自测"就是在撒谎。
+
+问答原文复用 `ai_conversations`（`kind="review"`）/ `ai_messages`，
+后续追问走学习室同一条 SSE 端点——前端不用第二套流式代码。
+学习室列表按 `kind="chat"` 过滤，复习对话不混进聊天历史；
+`review_sessions.conversation_id` ON DELETE SET NULL：清空对话历史
+删问答原文，评级记录保留（评级是用户的数据）。
+
 ---
 
 ## 六、工作流 E：关联判断（阶段 4）

@@ -331,7 +331,8 @@ FTS5 会自动创建 5 张影子表：`knowledge_fts_data`、`knowledge_fts_idx`
 | 列 | 类型 | 说明 |
 |---|---|---|
 | `id` | String(36) PK | UUID |
-| `title` | String(100) NOT NULL | 从第一条用户消息截断而来（D-042：不让 AI 起名）。生成时做空白归一 |
+| `title` | String(100) NOT NULL | 从第一条用户消息截断而来（D-042：不让 AI 起名）。生成时做空白归一。复习会话是「复习：{标题}」 |
+| `kind` | String(16) NOT NULL | `chat`（学习室）/ `review`（对话式复习），阶段 3 加的列（迁移 0003）。**学习室列表按 `kind="chat"` 过滤**——复习问答不该混进聊天历史；按 id 仍能取到（详情页看问答原文）。老数据由 server_default='chat' 回填 |
 | `created_at` / `updated_at` | UTCDateTime | `updated_at` 每追加一条消息就 bump（服务层手动维护，列表按它倒序） |
 
 索引：`ix_ai_conversations_updated_at`。
@@ -386,6 +387,52 @@ FTS5 会自动创建 5 张影子表：`knowledge_fts_data`、`knowledge_fts_idx`
 | `created_at` | UTCDateTime | |
 
 已知极窄窗口（D-052）：知识行 commit 与本表 commit 之间进程被杀，重试会多一条记录。单人本地应用权衡后接受。
+
+---
+
+## 阶段 3 的两张复习表（迁移 0003，已实现）
+
+> 复习也是**核心功能**（C4：不配 AI 照样能复习），这两张表与 AI 五表不同：
+> `review_schedules` 是核心路径，`review_sessions` 只依赖 `knowledge`，
+> 唯一的 AI 关联是可空的 `conversation_id`（见下）。
+
+### `review_schedules`
+
+一条知识**恰好一行**（`knowledge_id` 唯一约束）——排期是知识的属性，
+不是独立的"卡片"实体。存的是 fsrs `Card` 的完整可重建状态。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `knowledge_id` | FK → knowledge，UNIQUE | 创建知识时由 `ensure_schedule` 挂钩建行（due=现在，即立刻到期，D-060） |
+| `state` | String(16) | fsrs 卡片状态：`learning` / `review` / `relearning` |
+| `step` | Integer NOT NULL | **必须存**：fsrs 的学习步（同一天内的短间隔）也在这里，漏了它当天第二次复习会被当成首次，间隔算错 |
+| `stability` / `difficulty` | Float 可空 | 新卡片为 NULL（与 fsrs Card 一致） |
+| `due` | UTCDateTime NOT NULL | 下次复习时间。到期列表核心查询 `WHERE status='active' AND due<=now ORDER BY due` |
+| `last_review` | UTCDateTime 可空 | |
+| `status` | String(16) | `active` / `suspended`（D-060 单条可暂停）。暂停不改 due——恢复时过期的自然立刻到期，错过的复习不追溯补排 |
+| `created_at` / `updated_at` | UTCDateTime | |
+
+索引：`ix_review_schedules_due (status, due)` 复合索引正好服务到期查询；
+UNIQUE 用显式 `UniqueConstraint` 而非列上 `unique=True`（后者会被 alembic
+autogenerate 渲染成唯一索引导致 `alembic check` 报漂移，建表时踩过）。
+
+### `review_sessions`
+
+一次复习 = 一行。**问答原文不在这里**——对话式复习的问题与回答在
+`ai_conversations(kind="review")` / `ai_messages` 里，这张表存评级与元数据。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `knowledge_id` | FK → knowledge | 复合索引 `(knowledge_id, reviewed_at)` 服务历史查询**和四个统计值的推算**（reps/lapses/elapsed_days/scheduled_days，fsrs 不提供，见 `domain/scheduler.py` 的 `derive_stats`） |
+| `reviewed_at` | UTCDateTime NOT NULL | |
+| `rating` | String(16) NOT NULL | **用户自己打的分，唯一权威（C7）**。`again/hard/good/easy`，词表 `RATINGS` |
+| `mode` | String(16) | `self_test`（不花 AI 请求）/ `ai_chat`（D-062/D-063） |
+| `suggested_rating` | String(16) 可空 | AI 建议评级。**只进存档，排期计算不读它**——两者的差异是"AI 是否系统性高估用户"的一手数据。有服务层 + HTTP 双层测试锁定 |
+| `ai_comment` | Text 可空 | AI 的评价文字。是 AI 的话，与用户原文无关，不涉 C1 |
+| `conversation_id` | FK → ai_conversations，可空，**ON DELETE SET NULL** | 问答原文的指针。用户清空对话历史时评级记录**保留**（评级是用户的数据），`NULL` = 原文已被用户主动清掉，不是数据坏了。数据库级 SET NULL 有迁移测试锁定 |
+| `duration_ms` | Integer 可空 | 前端从出题展示计时到提交；量不到就留空，**宁可空也不编一个数** |
 
 ---
 
@@ -457,32 +504,24 @@ ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 > 但工作流 C 要求审查结果"独立存储且不写进 knowledge_versions 的任何现有行"、
 > 逐条采纳/忽略的状态要能扛住刷新，Blueprint 验收项又要求"不会重复提交
 > 造成重复记录"，这三件事各需要一张表。理由详见 `DECISIONS.md` 第九节。
+>
+> **阶段 3 的两张复习表也已实现**，见上文「阶段 3 的两张复习表」。
+> 下面只剩阶段 4 的一张。
 
 | 表 | 阶段 | 关键字段 | 已知风险 |
 |---|---|---|---|
-| `review_schedules` | 3 | FSRS 状态：`stability`、`difficulty`、`due`、`last_review`、`state` | **见下方警告** |
-| `review_sessions` | 3 | 问题、回答、AI 评价、AI 建议评级、**用户最终评级**、耗时 | 用户评级是权威，AI 只是建议 |
 | `knowledge_relations` | 4 | 关系类型、解释、依据、置信度、`status`(pending/accepted/rejected) | 图谱只查 accepted |
 
-### ⚠️ 阶段 3 的 FSRS 字段不匹配（提前记录）
+### ✅ 阶段 3 的 FSRS 字段不匹配（已解决）
 
-`fsrs` 6.3.2 的 `Card` 只有这些字段：
+预先记录的缺口在阶段 3 兑现：`fsrs` 6.3.2 的 `Card` 只提供
+`state, step, stability, difficulty, due, last_review`（`card_id` 不落库），
+Blueprint 要求的 **`reps` / `lapses` / `elapsed_days` / `scheduled_days`**
+四个统计值由 `backend/domain/scheduler.py` 的 `derive_stats()` 从
+`review_sessions` 历史推算（推导规则就是本文件原记录的四条），
+`review_now` 每次提交后全量重算，不维护增量计数——单人本地库，正确性优先。
 
-```
-card_id, state, step, stability, difficulty, due, last_review
-```
-
-而 Blueprint 的 `review_schedules` 还列了
-**`reps`、`lapses`、`elapsed_days`、`scheduled_days`**。
-这四个字段 FSRS 库**不提供**，必须由 `review_sessions` 的历史记录推算：
-
-- `reps` = 该知识单元的 `review_sessions` 行数
-- `lapses` = 其中评级为 `again` 的行数
-- `elapsed_days` = 本次 `reviewed_at` − 上次 `reviewed_at`
-- `scheduled_days` = 本次 `due` − 上次 `reviewed_at`
-
-另外测试**必须**用 `Scheduler(enable_fuzzing=False)`，
-否则 FSRS 会给复习间隔加随机扰动，结果不确定、无法断言。
+测试一律 `Scheduler(enable_fuzzing=False)`，断言确定（`tests/test_scheduler.py`）。
 
 ---
 
