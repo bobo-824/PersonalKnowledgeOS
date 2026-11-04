@@ -673,7 +673,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 8626 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 688 个（20 个测试文件）。
+后端 9056 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 701 个（21 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
@@ -707,7 +707,9 @@ def port_state(port, host="127.0.0.1"):
 | `backend/api/review.py` | ✅ 7 个端点：`/due`、`/due/count`、`/{id}/schedule`、`/{id}/rate`、`/{id}/suspension`、`/{id}/session`（开 AI 对话复习）、`/{id}/rating-suggestion`、`/{id}/history`。静态路径声明在 `/{knowledge_id}` 之前 |
 | **复习系统** | ✅ **阶段 3 完成**（2026-11-04）：纯自测 + AI 对话式复习（工作流 D，建议不落库、用户评级写排期）。前端 `ReviewCenterPage`（双模式、四级评级、AI 建议仅高亮）+ 详情页排期卡（暂停开关、历史）+ 首页到期条数卡。对话式复习未对真实模型全链路联调（真实路径与学习室共用 SSE 端点与 Provider，fake Provider 已覆盖 HTTP 全流程；真机首次使用建议先开一场便宜的复习确认） |
 | **知识图谱** | ✅ **阶段 4 完成**（2026-11-04）：候选召回（FTS5 三字滑窗 OR + 短标题 LIKE，免费实时不落库，D-064）→ AI 逐对判断（RelationSuggestion 过 C3，单对失败不阻断）→ 用户审核（accepted 才进图谱，rejected/ignored 永久保留防重复骚扰）。`backend/domain/relation.py` 纯函数状态机、`backend/services/relation_service.py`（564 行）、`backend/api/relations.py` 8 个端点。前端 `KnowledgeGraphPage`（React Flow 图谱 + 待审队列 + 成长统计）+ 详情页「相关知识」卡，`@xyflow/react` 按路由 lazy 分包 |
-| **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
+| **备份与导出** | ✅ **阶段 5 完成**（2026-11-04）：`VACUUM INTO` 快照（启动自动 + 设置页手动，保留最近 7 份，D-068）+ Markdown / JSON 整库导出（D-069）。**不做界面内"恢复"**（D-068：整库替换做成一键操作风险收益不成立，文档教手动路径）。PWA 与局域网访问按 D-070 跳过 |
+| `backend/services/backup_service.py` | ✅ 完整（136 行）：快照可查、同秒撞名顺延序号、按 (时间戳， 序号) 确定性排序、启动失败只警告不阻塞 |
+| `backend/services/export_service.py` | ✅ 完整（168 行）：MD 单文件按领域分组（归档项带标注）、JSON 逐表完整保真（10 张业务表 + 带时区 ISO 时间；FTS5 是派生索引不进导出） |
 | 图谱相关前端 | ✅ `frontend/src/lib/relation-{schemas,api,queries}.ts`（zod 契约对齐后端）+ `KnowledgeGraphPage` + 详情页 `RelatedKnowledgeCard`。原「复习/图谱占位页」只剩复习的诚实占位已随阶段 3 移除，占位页清零 |
 
 **用户真实的 `data/app.db` 已有真实使用数据**：阶段 2 真机联调在用户库里
@@ -723,7 +725,10 @@ FSRS 排下次时间，全程不配 AI 也能用（D-062），AI 建议永远只
 知识图谱：候选对免费自动召回，点一次按钮让 AI 逐对判断（点之前明示请求数），
 确认过的关系才出现在图谱上，拒绝过的对不再被提出。
 数据落在本机 SQLite，进程被强杀也不丢（WAL 恢复实测过）。
-不能备份导出、没有移动端优化（阶段 5）。
+每次启动自动备份一份（保留最近 7 份），设置页随时能手动备份、
+导出 Markdown（给人读）或 JSON（全量保真，能导回）。
+不做的事：PWA / 局域网访问（D-070，用户暂无手机使用需求）、
+界面内一键恢复备份（D-068，太危险，文档教手动替换）。
 
 ---
 
