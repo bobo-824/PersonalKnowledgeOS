@@ -105,7 +105,7 @@ export function HomePage() {
         <div className="min-w-0">
           <h1 className="font-heading text-xl font-semibold">首页</h1>
           <p className="text-sm text-muted-foreground">
-            阶段 0：项目骨架已跑通，下面是真实自检结果
+            你的知识库正在本机运行，下面是运行状态
           </p>
         </div>
       </div>
@@ -123,8 +123,7 @@ export function HomePage() {
             )}
           </CardTitle>
           <CardDescription>
-            直接请求本机 <code className="rounded bg-muted px-1">/api/health</code>，
-            不是模拟数据。
+            直接请求本机健康检查接口，不是模拟数据。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
@@ -170,7 +169,6 @@ export function HomePage() {
                     )
                   }
                 />
-                <Row label="迁移版本" value={data.database.schema_version ?? "未迁移"} />
                 <Row
                   label="数据库文件"
                   value={
@@ -190,13 +188,11 @@ export function HomePage() {
                         已配置密钥
                       </span>
                     ) : (
-                      "未配置（阶段 2 才需要）"
+                      <Link to="/settings" className="text-primary underline-offset-2 hover:underline">
+                        未配置，去设置页填写
+                      </Link>
                     )
                   }
-                />
-                <Row
-                  label="前端构建产物"
-                  value={data.frontend_built ? "已构建" : "开发模式"}
                 />
               </div>
 
@@ -222,33 +218,6 @@ export function HomePage() {
               </Button>
             </>
           )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>阶段 0 已交付</CardTitle>
-          <CardDescription>
-            完整的路线图见 <code className="rounded bg-muted px-1">docs/ROADMAP.md</code>。
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="flex flex-col gap-1.5 text-sm">
-            {[
-              "本地 SQLite 数据库与 Alembic 迁移（knowledge / knowledge_versions / sources + 中文全文索引）",
-              "统一配置层：端口、数据目录、AI 密钥全部来自 .env，代码里无硬编码",
-              "单端口部署：同一个服务同时提供 API 与前端页面",
-              "响应式外壳：桌面侧边栏 / 移动端抽屉，触屏可完整操作",
-            ].map((item) => (
-              <li key={item} className="flex gap-2">
-                <CircleCheck
-                  aria-hidden="true"
-                  className="mt-0.5 size-4 shrink-0 text-green-600"
-                />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
         </CardContent>
       </Card>
     </div>
