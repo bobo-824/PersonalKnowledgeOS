@@ -982,6 +982,25 @@ def test_knowledge_endpoints_still_work_with_ai_unconfigured(client: TestClient)
     assert client.get("/api/health").json()["ai_configured"] is False
 
 
+def test_extract_and_review_without_ai_are_409_and_persist_nothing(client: TestClient) -> None:
+    """C4 的另一半：未配置 AI 不只挡发消息。提取、审查也得给出
+    同一个可操作的 409（指名缺哪个环境变量），并且审查一行都不落。
+    之前只锁了发消息端点——⑨补的缺口。"""
+    conversation_id = make_conversation(client)
+    knowledge_id = make_knowledge(client)
+
+    extract_response = client.post(f"/api/ai/conversations/{conversation_id}/extract")
+    review_response = client.post("/api/ai/reviews", json={"knowledge_id": knowledge_id})
+
+    assert extract_response.status_code == 409, extract_response.text
+    assert review_response.status_code == 409, review_response.text
+    assert extract_response.json()["error_kind"] == "not_configured"
+    assert review_response.json()["error_kind"] == "not_configured"
+    assert client.get(
+        "/api/ai/reviews", params={"knowledge_id": knowledge_id}
+    ).json() == []
+
+
 def test_the_three_not_found_cases_say_different_things(fake_ai) -> None:
     """三种"找不到"状态码都是 404，但**文案必须不一样**：
     找不到会话、找不到审查、审查里没有那个条目，用户下一步做的事完全不同。
