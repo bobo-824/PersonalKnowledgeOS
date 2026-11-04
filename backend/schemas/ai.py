@@ -31,10 +31,11 @@ AI 返回的任何东西都要先过这里，过不了就不写库、不显示�
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from backend.domain.relation import is_valid_relation_type
 from backend.schemas.knowledge import SourceKind
 from backend.schemas.review_api import ReviewRating
 
@@ -185,3 +186,44 @@ class RatingSuggestion(_AiOutputModel):
 
     suggested_rating: ReviewRating
     evaluation: _REVIEW_TEXT
+
+
+# ============================================================ 工作流 E：关系判断
+
+
+class RelationSuggestion(_AiOutputModel):
+    """AI 对一对候选知识的关系判断（阶段 4 / 工作流 E / D-065）。
+
+    ⚠️ 工作流 E 的硬要求在这里卡住：
+    - `is_related=true` 时 `explanation` 和 `evidence` 必须非空——
+      没有理由和依据的候选不让落库，审核不能变成盲签。
+    - `relation_type` 六类之外也接受（D-065：AI 可提自定义类型），
+      但本身必须干净（非空、无空白、不超长），校验用
+      `backend.domain.relation.is_valid_relation_type`。
+    - `confidence` 只用于排序（C7），数值范围仍要合法。
+
+    `is_related=false` 时其余字段不作要求——AI 说"不相关"是正常输出，
+    不是校验失败，这条候选直接不落行。
+    """
+
+    is_related: bool = True
+    relation_type: str = Field(default="", max_length=32)
+    direction: Literal["first", "second"] = "first"
+    explanation: str = Field(default="", max_length=600)
+    evidence: str = Field(default="", max_length=600)
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _related_requires_reasoning(self) -> "RelationSuggestion":
+        if not self.is_related:
+            return self
+        if not is_valid_relation_type(self.relation_type):
+            raise ValueError(
+                f"relation_type 不合法：{self.relation_type!r}"
+                "（六类之一，或干净的自定义短语）"
+            )
+        if not self.explanation or not self.evidence:
+            raise ValueError(
+                "相关判断必须给 explanation 和 evidence，没有依据的候选不接受"
+            )
+        return self

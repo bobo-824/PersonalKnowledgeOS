@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from backend.api.ai import router as ai_router
 from backend.api.health import router as health_router
 from backend.api.knowledge import router as knowledge_router
+from backend.api.relations import router as relations_router
 from backend.api.review import router as review_router
 from backend.api.settings import router as settings_router
 from backend.config import ConfigFileError, Settings, get_settings
@@ -41,6 +42,11 @@ from backend.services.ai_service import (
     ReviewNotFound,
 )
 from backend.services.knowledge_service import KnowledgeNotFound
+from backend.services.relation_service import (
+    InvalidRelationState,
+    InvalidRelationType,
+    RelationNotFound,
+)
 from backend.services.review_service import KnowledgeNotSchedulable, ReviewConversationNotFound
 
 logger = logging.getLogger(__name__)
@@ -113,6 +119,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 和"不存在"分开，前端才能显示"恢复后再复习"而不是"找不到"。
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
+    @app.exception_handler(RelationNotFound)
+    async def _relation_not_found(
+        _request: Request, exc: RelationNotFound
+    ) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=404)
+
+    @app.exception_handler(InvalidRelationState)
+    async def _invalid_relation_state(
+        _request: Request, exc: InvalidRelationState
+    ) -> JSONResponse:
+        # 409：候选存在，只是状态机不允许这次处置（比如已经拒绝过）
+        return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.exception_handler(InvalidRelationType)
+    async def _invalid_relation_type(
+        _request: Request, exc: InvalidRelationType
+    ) -> JSONResponse:
+        # 422：类型是用户自己填的，他能当场改好
+        return JSONResponse({"detail": str(exc)}, status_code=422)
+
     @app.exception_handler(ConfigFileError)
     async def _broken_config(_request: Request, exc: ConfigFileError) -> JSONResponse:
         """配置文件坏了确实是 500，但**默认 500 不带任何信息**。
@@ -132,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 通配路由，FastAPI 按注册顺序匹配，后注册的业务路由会被它抢走。
     app.include_router(knowledge_router)
     app.include_router(review_router)
+    app.include_router(relations_router)
     _mount_frontend(app, settings)
     return app
 

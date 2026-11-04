@@ -25,6 +25,7 @@ from backend.schemas.ai import (
     KnowledgeDraft,
     RatingSuggestion,
     NeedsVerificationItem,
+    RelationSuggestion,
     ReviewError,
     ReviewOmission,
     ReviewResult,
@@ -32,10 +33,12 @@ from backend.schemas.ai import (
 )
 from backend.schemas.knowledge import KnowledgeCreate, SourceCreate, SourceKind
 from backend.db.models import RATINGS
+from backend.domain.relation import CORE_RELATION_TYPES
 from backend.services.ai.prompts import (
     EXTRACT_FIELDS,
     EXTRACT_SYSTEM_PROMPT,
     RATING_SUGGESTION_FIELDS,
+    RELATION_SUGGESTION_FIELDS,
     REVIEW_CATEGORIES_IN_PROMPT,
     REVIEW_ITEM_FIELDS_IN_PROMPT,
     REVIEW_SYSTEM_PROMPT,
@@ -416,3 +419,82 @@ def test_rating_suggestion_vocabulary_is_the_database_vocabulary() -> None:
     assert set(
         RatingSuggestion.model_fields["suggested_rating"].annotation.__args__
     ) == set(RATINGS)
+
+
+# ================================================= 关系判断（阶段 4 工作流 E）
+
+
+def test_relation_suggestion_fields_exactly_match_the_prompt() -> None:
+    assert set(RelationSuggestion.model_fields) == set(RELATION_SUGGESTION_FIELDS)
+
+
+def test_related_candidate_without_explanation_or_evidence_is_rejected() -> None:
+    """工作流 E 硬要求在 C3 层的落点：说"相关"却给不出解释和依据的判断，
+    不允许落库——用户没法审核一个没有理由的关联。"""
+    base = {"relation_type": "prerequisite"}
+    with pytest.raises(ValidationError):
+        RelationSuggestion.model_validate({**base, "explanation": "", "evidence": "有依据"})
+    with pytest.raises(ValidationError):
+        RelationSuggestion.model_validate({**base, "explanation": "有解释", "evidence": "  "})
+    ok = RelationSuggestion.model_validate(
+        {**base, "explanation": "为什么相关", "evidence": "依据是什么"}
+    )
+    assert ok.is_related is True
+
+
+def test_unrelated_verdict_needs_no_reasoning() -> None:
+    """AI 说"不相关"是正常输出：其余字段可以空，不该被逼着硬凑理由。"""
+    ok = RelationSuggestion.model_validate({"is_related": False})
+    assert ok.is_related is False
+    assert ok.explanation == ""
+
+
+def test_relation_type_accepts_core_and_clean_custom_rejects_dirty() -> None:
+    """D-065：六类之外的自定义类型也接受，但必须本身干净。"""
+    for relation_type in CORE_RELATION_TYPES:
+        assert RelationSuggestion.model_validate(
+            {
+                "relation_type": relation_type,
+                "explanation": "x",
+                "evidence": "y",
+            }
+        )
+    custom = RelationSuggestion.model_validate(
+        {"relation_type": "同源概念", "explanation": "x", "evidence": "y"}
+    )
+    assert custom.relation_type == "同源概念"
+    for dirty in ("", "带 空格", "x" * 33):
+        with pytest.raises(ValidationError):
+            RelationSuggestion.model_validate(
+                {"relation_type": dirty, "explanation": "x", "evidence": "y"}
+            )
+
+
+def test_relation_confidence_is_bounded() -> None:
+    """confidence 只用于排序（C7），但数值范围仍要合法，越界拒绝。"""
+    good = RelationSuggestion.model_validate(
+        {"relation_type": "analogy", "explanation": "x", "evidence": "y", "confidence": 1.0}
+    )
+    assert good.confidence == 1.0
+    for bad in (-0.1, 1.5):
+        with pytest.raises(ValidationError):
+            RelationSuggestion.model_validate(
+                {
+                    "relation_type": "analogy",
+                    "explanation": "x",
+                    "evidence": "y",
+                    "confidence": bad,
+                }
+            )
+
+
+def test_relation_direction_is_limited_to_two_values() -> None:
+    with pytest.raises(ValidationError):
+        RelationSuggestion.model_validate(
+            {
+                "relation_type": "analogy",
+                "direction": "both",
+                "explanation": "x",
+                "evidence": "y",
+            }
+        )
