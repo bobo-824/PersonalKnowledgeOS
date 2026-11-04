@@ -4,6 +4,8 @@ import {
   FileQuestion,
   Link2,
   Pencil,
+  PauseCircle,
+  PlayCircle,
   RotateCcw,
 } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
@@ -22,6 +24,14 @@ import {
   useRestoreKnowledge,
 } from "@/lib/knowledge-queries"
 import {
+  MODE_LABELS,
+  RATING_LABELS,
+  STATE_LABELS,
+  type ReviewRating,
+  type ReviewSessionRow,
+} from "@/lib/review-schemas"
+import { useReviewHistory, useSchedule, useSetSuspension } from "@/lib/review-queries"
+import {
   KNOWLEDGE_SOURCE_TYPE_LABELS,
   SOURCE_KIND_LABELS,
   STATUS_LABELS,
@@ -39,6 +49,97 @@ function Field({ label, text }: { label: string; text: string | null }) {
           这是"保留用户原始理解"在显示层的最低要求 */}
       <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">{text}</p>
     </div>
+  )
+}
+
+function HistoryRow({ row }: { row: ReviewSessionRow }) {
+  return (
+    <li className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      <span>{formatDateTime(row.reviewed_at)}</span>
+      <Badge variant={row.rating === "again" ? "secondary" : "outline"}>
+        {RATING_LABELS[row.rating as ReviewRating]}
+      </Badge>
+      <span>{MODE_LABELS[row.mode as "self_test" | "ai_chat"]}</span>
+      {row.suggested_rating && row.suggested_rating !== row.rating && (
+        <span>（AI 当时建议「{RATING_LABELS[row.suggested_rating]}」，你没采纳）</span>
+      )}
+      {row.duration_ms !== null && (
+        <span>用了 {Math.max(1, Math.round(row.duration_ms / 1000))} 秒</span>
+      )}
+    </li>
+  )
+}
+
+/**
+ * 复习排期卡。辅助信息：加载失败或这条知识还没有排期行就整个不显示，
+ * 不打扰"看理解"这个主任务。
+ */
+function ReviewScheduleCard({ knowledgeId }: { knowledgeId: string }) {
+  const { data: schedule, isPending, error } = useSchedule(knowledgeId)
+  const { data: history } = useReviewHistory(knowledgeId)
+  const suspension = useSetSuspension(knowledgeId)
+
+  if (isPending || error || !schedule) return null
+
+  const suspended = schedule.status === "suspended"
+  const rows = [...(history ?? [])].reverse().slice(0, 10)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">复习排期</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={suspended ? "secondary" : "outline"}>
+            {suspended ? "已暂停" : "进行中"}
+          </Badge>
+          <Badge variant="outline">{STATE_LABELS[schedule.state]}</Badge>
+          <span className="text-sm">
+            下次复习：{formatDateTime(schedule.due)}（{formatRelative(schedule.due)}）
+          </span>
+        </div>
+        {schedule.last_review && (
+          <p className="text-xs text-muted-foreground">
+            上次复习于 {formatDateTime(schedule.last_review)}
+            {history && history.length > 0 && `，累计 ${history.length} 次`}
+            。
+          </p>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="outline"
+            className="min-h-11 self-start px-4"
+            disabled={suspension.isPending}
+            onClick={() => suspension.mutate(!suspended)}
+          >
+            {suspended ? <PlayCircle aria-hidden="true" /> : <PauseCircle aria-hidden="true" />}
+            {suspension.isPending ? "处理中…" : suspended ? "恢复复习" : "暂停复习"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {suspended
+              ? "暂停期间不会出现在复习中心，恢复后从现在重新排起，错过的不会补。"
+              : "嫌这条太吵可以先暂停，知识本身不受影响。"}
+          </p>
+        </div>
+
+        {suspension.error && <ApiErrorNotice error={suspension.error} />}
+
+        {rows.length > 0 && (
+          <div className="flex flex-col gap-1.5 border-t border-border pt-2">
+            <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              最近的复习记录
+            </p>
+            <ul className="flex flex-col gap-1">
+              {rows.map((row) => (
+                <HistoryRow key={row.id} row={row} />
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -198,6 +299,9 @@ export function KnowledgeDetailPage() {
           currentUnderstanding={current.user_understanding}
         />
       )}
+
+      {/* 复习排期：辅助信息，没有排期行（老数据）就整卡不显示 */}
+      <ReviewScheduleCard knowledgeId={knowledge.id} />
 
       {/* 学习来源 */}
       <section className="flex flex-col gap-2">
