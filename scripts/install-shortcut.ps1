@@ -6,7 +6,9 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
 
-$ico = Join-Path $Root "assets\app-icon.ico"
+# 图标文件名带版本号（pkos-desktop-icon-v2.ico）：Windows 按图标路径缓存，
+# 换新图标时必须换文件名，否则桌面快捷方式会一直显示旧图标。
+$ico = Join-Path $Root "assets\pkos-desktop-icon-v2.ico"
 if (-not (Test-Path $ico)) {
     Write-Host "[XX] 找不到图标文件 $ico" -ForegroundColor Red
     return
