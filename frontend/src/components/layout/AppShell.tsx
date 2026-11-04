@@ -38,9 +38,6 @@ function NavList({ onNavigate }: { onNavigate?: () => void }) {
               <span>{item.label}</span>
               <span className="text-xs opacity-70">{item.description}</span>
             </span>
-            <span className="ml-auto text-[10px] tabular-nums opacity-50">
-              P{item.stage}
-            </span>
           </NavLink>
         )
       })}
