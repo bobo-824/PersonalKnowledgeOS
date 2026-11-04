@@ -24,6 +24,10 @@ import {
   useRestoreKnowledge,
 } from "@/lib/knowledge-queries"
 import {
+  relationTypeLabel,
+} from "@/lib/relation-schemas"
+import { useRelated } from "@/lib/relation-queries"
+import {
   MODE_LABELS,
   RATING_LABELS,
   STATE_LABELS,
@@ -137,6 +141,61 @@ function ReviewScheduleCard({ knowledgeId }: { knowledgeId: string }) {
               ))}
             </ul>
           </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/**
+ * 「相关知识」卡。辅助信息：加载失败（后端未升级等）就整卡不显示，
+ * 不打扰"看理解"这个主任务。已确认的关系点标题可跳转；
+ * 候选只是提示，判断入口在图谱页。
+ */
+function RelatedKnowledgeCard({ knowledgeId }: { knowledgeId: string }) {
+  const { data, isPending, error } = useRelated(knowledgeId)
+  if (isPending || error || !data) return null
+
+  const hasContent = data.relations.length > 0 || data.candidates.length > 0
+  if (!hasContent) return null
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>相关知识</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        {data.relations.length > 0 && (
+          <ul className="flex flex-col gap-2">
+            {data.relations.map((rel) => (
+              <li
+                key={rel.id}
+                className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge>{relationTypeLabel(rel.relation_type)}</Badge>
+                  <Link
+                    to={`/knowledge/${rel.other_id}`}
+                    className="min-w-0 text-sm font-medium underline-offset-4 break-words hover:underline"
+                  >
+                    {rel.other_title}
+                  </Link>
+                </div>
+                <p className="text-xs break-words text-muted-foreground">
+                  {rel.explanation}
+                </p>
+              </li>
+            ))}
+          </ul>
+        )}
+        {data.candidates.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            另有 {data.candidates.length} 条可能的关联等待 AI 判断——去{" "}
+            <Link to="/graph" className="text-primary underline-offset-4 hover:underline">
+              知识图谱
+            </Link>{" "}
+            页处理。
+          </p>
         )}
       </CardContent>
     </Card>
@@ -302,6 +361,9 @@ export function KnowledgeDetailPage() {
 
       {/* 复习排期：辅助信息，没有排期行（老数据）就整卡不显示 */}
       <ReviewScheduleCard knowledgeId={knowledge.id} />
+
+      {/* 相关知识：已确认的关系 + 等判断的候选，没有就整卡不显示 */}
+      {!isArchived && <RelatedKnowledgeCard knowledgeId={knowledge.id} />}
 
       {/* 学习来源 */}
       <section className="flex flex-col gap-2">
