@@ -1,10 +1,10 @@
-import { AlertCircle, Info, type LucideIcon } from "lucide-react"
+import { AlertCircle, AlertTriangle, CheckCircle2, Info, type LucideIcon } from "lucide-react"
 import type * as React from "react"
 
 import { ApiError } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-type Tone = "error" | "info"
+type Tone = "error" | "info" | "success" | "warning"
 
 const TONES: Record<Tone, { className: string; icon: LucideIcon }> = {
   error: {
@@ -14,6 +14,14 @@ const TONES: Record<Tone, { className: string; icon: LucideIcon }> = {
   info: {
     className: "border-border bg-muted/60 text-foreground",
     icon: Info,
+  },
+  success: {
+    className: "border-emerald-500/30 bg-emerald-500/5 text-foreground",
+    icon: CheckCircle2,
+  },
+  warning: {
+    className: "border-amber-500/30 bg-amber-500/5 text-foreground",
+    icon: AlertTriangle,
   },
 }
 

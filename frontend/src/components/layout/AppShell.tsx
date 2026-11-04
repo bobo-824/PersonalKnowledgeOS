@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useState } from "react"
 import { Menu, X } from "lucide-react"
 import { NavLink, Outlet, useLocation } from "react-router-dom"
 
@@ -151,7 +151,17 @@ export function AppShell() {
 
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-5xl">
-            <Outlet />
+            {/* 页面分包后，导航到新页面时要等它的包下载完；
+                fallback 给一个居中的轻提示而不是白屏。本地环境几乎看不到它。 */}
+            <Suspense
+              fallback={
+                <p role="status" className="py-16 text-center text-sm text-muted-foreground">
+                  页面加载中…
+                </p>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
