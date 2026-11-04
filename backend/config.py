@@ -14,6 +14,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# 应用版本号。放这里而不是 main.py：导出文件里也要标版本，
+# 从 main 导入会和路由注册形成循环导入。
+APP_VERSION = "0.1.0"
+
 
 class ConfigFileError(RuntimeError):
     """配置文件读不出来，或里面的值不合法。

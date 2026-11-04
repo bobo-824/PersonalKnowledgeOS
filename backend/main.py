@@ -18,12 +18,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import ValidationError
 
 from backend.api.ai import router as ai_router
+from backend.api.backups import router as backups_router
 from backend.api.health import router as health_router
+from backend.api.export import router as export_router
 from backend.api.knowledge import router as knowledge_router
 from backend.api.relations import router as relations_router
 from backend.api.review import router as review_router
 from backend.api.settings import router as settings_router
-from backend.config import ConfigFileError, Settings, get_settings
+from backend.config import APP_VERSION, ConfigFileError, Settings, get_settings
 from backend.db.models import (
     ERROR_KINDS,
     ERROR_KIND_AUTH_REJECTED,
@@ -41,6 +43,7 @@ from backend.services.ai_service import (
     ReviewItemNotFound,
     ReviewNotFound,
 )
+from backend.services.backup_service import auto_backup_on_startup
 from backend.services.knowledge_service import KnowledgeNotFound
 from backend.services.relation_service import (
     InvalidRelationState,
@@ -50,8 +53,6 @@ from backend.services.relation_service import (
 from backend.services.review_service import KnowledgeNotSchedulable, ReviewConversationNotFound
 
 logger = logging.getLogger(__name__)
-
-APP_VERSION = "0.1.0"
 
 # AI 失败 → HTTP 状态码。按 `error_kind` 查而不是按异常类 isinstance 判断，
 # 是因为这一列就是失败的**唯一对外词汇**（`ai_messages.error_kind` 存的是它）。
@@ -70,6 +71,8 @@ AI_ERROR_STATUS: dict[str, int] = {
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # 启动自动备份（D-068）：失败只警告，绝不拦着人进自己的库
+    auto_backup_on_startup(get_settings())
     yield
     # 关闭连接池：SQLite 会在最后一个连接关闭时把 WAL 落盘，
     # 避免残留 -wal 文件让手动备份拿到不完整的数据。
@@ -159,6 +162,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge_router)
     app.include_router(review_router)
     app.include_router(relations_router)
+    app.include_router(backups_router)
+    app.include_router(export_router)
     _mount_frontend(app, settings)
     return app
 
