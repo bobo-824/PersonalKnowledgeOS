@@ -420,7 +420,8 @@ def check_ai_config(report: Report) -> None:
         WARN,
         detail + "：地址结尾没有 /v1",
         "OpenAI 兼容端点的地址通常要填到版本路径为止，例如 https://api.deepseek.com/v1。"
-        "少了 /v1 会得到「请求被拒绝」，那不是密钥错了",
+        "少数服务商（实测 DeepSeek）两种写法都认；如果「测试连接」能通过可以忽略本条，"
+        "通不过时优先补上 /v1 再试",
     )
 
 
