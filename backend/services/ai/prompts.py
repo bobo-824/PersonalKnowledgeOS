@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from backend.services.ai.provider import ChatMessage
 
-PROMPT_VERSION = "2026-11-04.1"
+PROMPT_VERSION = "2026-11-04.2"
 
 STUDY_CHAT_SYSTEM_PROMPT = """\
 你是这个个人知识库里的「学习室」陪伴者，不是答题机器。
@@ -172,12 +172,47 @@ REVIEW_RATE_SYSTEM_PROMPT = """\
 - evaluation 只评价**这次回答**，不评价这个人。
 """
 
+RELATION_JUDGE_SYSTEM_PROMPT = """\
+你的任务：判断两条知识是否真的相关。相关的话，给出关系类型、解释和依据。
+你的判断结果只是一个**候选**，会交由用户审核——用户可以确认、拒绝或修改，
+程序不会因为你说"相关"就自动建立这条关系。
+
+只输出一个 JSON 对象。不要任何解释文字，不要用 markdown 代码块围栏。
+字段固定为：
+{
+  "is_related": true 或 false,
+  "relation_type": "prerequisite|deeper|analogy|contrast|application|component 之一，都不贴切时给一个不超过 8 个字的自定义短语",
+  "direction": "first 或 second。first 表示甲是 source（甲 → 乙），second 表示乙是 source",
+  "explanation": "为什么相关，一两句话",
+  "evidence": "依据：引用双方内容里的具体说法",
+  "confidence": 0 到 1 之间的小数，你对这条判断有多大把握
+}
+
+六种固定关系类型的语义（都相对 source → target 而言）：
+- prerequisite：target 是理解 source 的前置知识
+- deeper：target 是 source 里某个点更深入的展开
+- analogy：两者道理或结构相似，可以互相类比
+- contrast：两者容易混淆，值得对照着记
+- application：target 是 source 的应用或用例
+- component：target 是 source 的组成部分
+
+必须做到：
+- 确实不相关就 is_related=false，不要硬凑。宁可漏掉一对，不要硬建一条。
+- is_related=true 时 explanation 和 evidence **都必须给**。
+  没有理由和依据的候选，用户没法判断该不该收，等于让他盲签。
+- evidence 必须引用双方内容里的具体说法，不能只说"它们都关于某某"。
+- confidence 如实给。它只影响候选显示的先后顺序，
+  再高也不会让这条关系自动通过。
+- 自定义类型是六类都不贴切时的出口，要短，要能让人看懂。
+"""
+
 PROMPTS: dict[str, str] = {
     "study_chat": STUDY_CHAT_SYSTEM_PROMPT,
     "extract": EXTRACT_SYSTEM_PROMPT,
     "review": REVIEW_SYSTEM_PROMPT,
     "review_chat": REVIEW_CHAT_SYSTEM_PROMPT,
     "review_rate": REVIEW_RATE_SYSTEM_PROMPT,
+    "relation_judge": RELATION_JUDGE_SYSTEM_PROMPT,
 }
 
 # 提示词里承诺的 JSON 形状。第⑤步的 Pydantic 模型必须和这两份名字对上。
@@ -224,6 +259,31 @@ RATING_SUGGESTION_FIELDS: tuple[str, ...] = ("suggested_rating", "evaluation")
 # review_rate 提示词里列出的四级评级值。必须和
 # db.models.RATINGS 一致（复习排期只认这四个值）。
 RATING_VALUES_IN_PROMPT: tuple[str, ...] = ("again", "hard", "good", "easy")
+
+# relation_judge 提示词承诺的 JSON 形状（阶段 4）。必须和
+# schemas.ai.RelationSuggestion 的字段一致，tests 里两头锁。
+RELATION_SUGGESTION_FIELDS: tuple[str, ...] = (
+    "is_related",
+    "relation_type",
+    "direction",
+    "explanation",
+    "evidence",
+    "confidence",
+)
+
+# 提示词里列出的六种固定关系类型。必须和
+# backend.domain.relation.CORE_RELATION_TYPES 一致。
+RELATION_TYPES_IN_PROMPT: tuple[str, ...] = (
+    "prerequisite",
+    "deeper",
+    "analogy",
+    "contrast",
+    "application",
+    "component",
+)
+
+# direction 只允许这两个值（谁是 source）
+RELATION_DIRECTIONS_IN_PROMPT: tuple[str, ...] = ("first", "second")
 
 
 def system_message(name: str) -> ChatMessage:

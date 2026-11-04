@@ -37,6 +37,7 @@ from backend.db.models.ai_review_decision import (
     AiReviewDecision,
 )
 from backend.db.models.idempotency_key import IdempotencyKey
+from backend.db.models.knowledge_relation import KnowledgeRelation
 from backend.db.models.knowledge import (
     KNOWLEDGE_SOURCE_TYPES,
     SOURCE_TYPE_CONVERSATION,
@@ -146,6 +147,7 @@ __all__ = [
     "AiReviewDecision",
     "IdempotencyKey",
     "Knowledge",
+    "KnowledgeRelation",
     "KnowledgeVersion",
     "ReviewSchedule",
     "ReviewSession",

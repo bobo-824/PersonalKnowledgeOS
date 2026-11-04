@@ -13,6 +13,7 @@ import re
 import pytest
 
 from backend.db.models import RATINGS, REVIEW_CATEGORIES, SOURCE_KINDS
+from backend.domain.relation import CORE_RELATION_TYPES
 from backend.domain.versioning import UNDERSTANDING_FIELDS
 from backend.services.ai.prompts import (
     EXTRACT_FIELDS,
@@ -21,6 +22,10 @@ from backend.services.ai.prompts import (
     PROMPTS,
     RATING_SUGGESTION_FIELDS,
     RATING_VALUES_IN_PROMPT,
+    RELATION_DIRECTIONS_IN_PROMPT,
+    RELATION_JUDGE_SYSTEM_PROMPT,
+    RELATION_SUGGESTION_FIELDS,
+    RELATION_TYPES_IN_PROMPT,
     REVIEW_CATEGORIES_IN_PROMPT,
     REVIEW_CHAT_SYSTEM_PROMPT,
     REVIEW_RATE_SYSTEM_PROMPT,
@@ -30,13 +35,14 @@ from backend.services.ai.prompts import (
 )
 
 
-def test_five_prompts_are_present_and_distinct() -> None:
+def test_six_prompts_are_present_and_distinct() -> None:
     assert set(PROMPTS) == {
         "study_chat",
         "extract",
         "review",
         "review_chat",
         "review_rate",
+        "relation_judge",
     }
     texts = list(PROMPTS.values())
     assert all(text.strip() for text in texts)
@@ -235,3 +241,36 @@ def test_review_chat_prompt_defers_grading_to_the_dedicated_call() -> None:
     """对话过程不给评级：评级建议走 review_rate 的结构化调用，
     两件事混在一起，建议就没法过 C3 校验。"""
     assert "不要在这段对话里给评级" in REVIEW_CHAT_SYSTEM_PROMPT
+
+
+# ------------------------------------------------ 关系判断（阶段 4 工作流 E）
+
+
+@pytest.mark.parametrize("field", RELATION_SUGGESTION_FIELDS)
+def test_relation_prompt_names_every_expected_field(field: str) -> None:
+    assert field in RELATION_JUDGE_SYSTEM_PROMPT
+
+
+def test_relation_prompt_lists_the_core_types() -> None:
+    """六类固定词表必须逐个出现在提示词里，和 domain 词表一致（D-065）。
+    提示词漏一种，AI 就会造出一个不认识的类型名，或者把六类之外的
+    东西当成六类来用。"""
+    assert set(RELATION_TYPES_IN_PROMPT) == set(CORE_RELATION_TYPES)
+    for relation_type in RELATION_TYPES_IN_PROMPT:
+        assert relation_type in RELATION_JUDGE_SYSTEM_PROMPT
+
+
+def test_relation_prompt_directions_are_complete() -> None:
+    assert set(RELATION_DIRECTIONS_IN_PROMPT) == {"first", "second"}
+
+
+def test_relation_prompt_requires_explanation_and_evidence() -> None:
+    """工作流 E 硬要求：没有解释和依据的候选不接受。提示词必须先说这件事，
+    Pydantic 校验才有资格当第二道防线。"""
+    assert "都必须给" in RELATION_JUDGE_SYSTEM_PROMPT
+    assert "盲签" in RELATION_JUDGE_SYSTEM_PROMPT
+
+
+def test_relation_prompt_says_confidence_never_auto_accepts() -> None:
+    """C7：置信度再高也要用户点一下。这句必须写进提示词。"""
+    assert "不会让这条关系自动通过" in RELATION_JUDGE_SYSTEM_PROMPT
