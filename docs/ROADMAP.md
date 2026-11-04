@@ -371,7 +371,7 @@ accept 忽略用户新理解 / 处置改插行 / 审查外泄历史版本 / 错�
 
 ---
 
-## 阶段 3：复习系统 ⬜
+## 阶段 3：复习系统 ✅ 已完成（2026-11-04，八步全部完成）
 
 **交付成果**：学习—复习闭环。
 **完成标准**：复习评级正确更新计划。
@@ -388,16 +388,61 @@ accept 忽略用户新理解 / 处置改插行 / 审查外泄历史版本 / 错�
 而 Blueprint 的 `review_schedules` 还列了 `reps, lapses, elapsed_days, scheduled_days`。
 这四个字段需要由 `review_sessions` 的历史记录推算，不能指望 FSRS 库直接给。
 另外测试必须用 `Scheduler(enable_fuzzing=False)`，否则结果不确定、测试无法断言。
+（风险已按记录兑现：四个统计值在 `domain/scheduler.py` 的 `derive_stats()` 推算。）
+
+**验收实测**（① — ⑧）：
+
+① 迁移 0003：`review_schedules`（`knowledge_id` 唯一 + `(status, due)` 复合索引）
+与 `review_sessions`（`(knowledge_id, reviewed_at)` 复合索引 + 可空
+`conversation_id` FK ON DELETE SET NULL）。`ai_conversations` 加 `kind` 列
+（server_default='chat'）。真机库升级时踩到"版本戳 0003 但 schema 是旧 0003"
+的漂移——`stamp 0002` 回退 + 手工 DROP 两张空表 + 重升级，`alembic check` 归零。
+
+② FSRS 接线（`domain/scheduler.py`，纯函数）：`Scheduler(enable_fuzzing=False)`、
+Card 与排期行的双向映射（**`step` 必须持久化**，漏了它当天第二次复习会被当首次）、
+`derive_stats()` 从历史推算 reps/lapses/elapsed_days/scheduled_days。
+
+③ `review_service`：到期列表（归档/暂停/未到期三重过滤、**刻意不带理解正文**）、
+`review_now`（用户评级是唯一权威，C7；AI 建议只进存档）、暂停/恢复（幂等，
+暂停不改 due）、历史。`create_knowledge` 挂钩 `ensure_schedule`——
+记一条知识自动进复习循环（D-060），不需要任何设置。
+
+④ `api/review.py` 七个端点。静态路径 `/due`、`/due/count` 声明在
+`/{knowledge_id}/...` 之前（不然 "due" 会被当成知识 id）。
+归档不能复习映射 409，理由同 AiNotConfigured：不是程序坏了，是这条数据现在不能这么操作。
+
+⑤ 对话式复习（工作流 D）：问答原文复用 `ai_conversations`/`ai_messages`
+（新 `kind` 列区分，学习室列表按 kind 过滤）；`start_review_chat`
+**先流式拿首问再建会话落库**——AI 失败结构上零残留，不靠隐式回滚；
+`suggest_review_rating` 不落任何表（C7），返回 RatingSuggestion 过 C3 校验；
+`review_sessions.conversation_id` ON DELETE SET NULL——清空对话历史删问答原文
+但保留评级记录（评级是用户的数据）。
+
+⑥ 前端复习中心：`review-{schemas,api,queries}.ts` 三层（zod 契约、React Query
+失效策略集中失效 `["review"]` 前缀）、`ReviewCenterPage`（到期列表 → 纯自测 /
+AI 对话双模式，四级评级按钮，AI 建议只做按钮旁高亮——用户点哪个算哪个，C7）、
+详情页复习排期卡（下次复习时间 + 暂停开关 + 最近记录）、首页到期条数卡。
+真机（临时库）实测：自测全流程、评级后从到期列表消失、暂停/恢复往返、
+付费确认弹窗（D-042）取消后**零 AI 调用**、模拟 AI 起步失败后纯自测照常走完（D-062）。
+
+⑦ 约束覆盖审计：C1/C3/C5/C7 在复习场景已有双层测试，补三处缺口——
+C1 全 AI 复习周期走完用户原文与版本数不变、C5 评级建议请求不带其他知识内容、
+C4 完全未配置 AI 时纯自测 HTTP 全链路可用。变异测试（D-037）注入 **9 个变异体
+全部被杀**，其中 1 个先存活：`due_count` 丢暂停过滤时原测试照样绿
+（条数测试里只有 active 数据）——补强 `test_due_count_matches_due_list`
+（加入暂停与归档数据）后复测被杀。全套 **644 passed**（641 → +3）。
+
+⑧ 文档与提交（本节即 ⑧ 的产出）。
 
 **验收标准**：
 
-- [ ] 复习中心能按到期时间列出知识
-- [ ] 复习流程包含 AI 提问、用户回答、AI 反馈和用户最终评级
-- [ ] AI 只给评级建议，最终评级由用户确认或修改
-- [ ] AI 不提前泄露答案，回答不完整时继续追问
-- [ ] FSRS 状态能在复习后正确更新，且可查看下次复习时间
-- [ ] 保存问题、回答、评价、评级、耗时和下次复习时间
-- [ ] 系统时间变化、跨日和时区转换不会导致复习日期错乱
+- [x] 复习中心能按到期时间列出知识
+- [x] 复习流程包含 AI 提问、用户回答、AI 反馈和用户最终评级
+- [x] AI 只给评级建议，最终评级由用户确认或修改
+- [x] AI 不提前泄露答案，回答不完整时继续追问
+- [x] FSRS 状态能在复习后正确更新，且可查看下次复习时间
+- [x] 保存问题、回答、评价、评级、耗时和下次复习时间
+- [x] 系统时间变化、跨日和时区转换不会导致复习日期错乱
 
 ---
 

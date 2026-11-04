@@ -681,7 +681,8 @@ def port_state(port, host="127.0.0.1"):
 | 数据库连接与会话 | ✅ 完整（含 WAL、外键、超时 PRAGMA） |
 | 迁移 0001（3 表 + 索引 + FTS5） | ✅ 完整，可 upgrade 可 downgrade |
 | 迁移 0002（5 张 AI 表 + 索引 + 级联） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移 |
-| ORM 模型 | ✅ 8 个模型 + `UTCDateTime` + 词表常量 |
+| 迁移 0003（2 张复习表 + `ai_conversations.kind`） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移 |
+| ORM 模型 | ✅ 10 个模型 + `UTCDateTime` + 词表常量 |
 | `/api/health` | ✅ 完整，含降级路径 |
 | 前端静态托管 + SPA 回落 | ✅ 完整 |
 | 前端外壳、路由、响应式导航 | ✅ 完整 |
@@ -700,7 +701,10 @@ def port_state(port, host="127.0.0.1"):
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
 | `backend/services/ai/` | ✅ 完整（1135 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`、`factory.py` 按配置构造 + 连通性探测 |
 | **AI 集成** | ✅ **阶段 2 完成**（2026-11-04）：三个工作流从界面一路跑到数据库。前端 `frontend/src/components/ai/`（草稿确认面板、审查区）+ `frontend/src/lib/ai-{api,queries,schemas}.ts`（SSE 手工切帧、zod 契约逐字段对齐后端）。真机联调已对真实 DeepSeek 全链路跑通（含流式、提取、审查、采纳、配置写入即时生效）。AI 相关前端页面按路由 lazy 分包，主包 390 kB |
-| **复习系统** | ❌ 未实现（阶段 3）。`fsrs` 已装但未接线，两张表未建 |
+| `backend/domain/scheduler.py` | ✅ 完整：FSRS 接线纯函数（不 import sqlalchemy/fastapi）。`Scheduler(enable_fuzzing=False)`、Card ⇄ 排期行双向映射（`step` 必须持久化）、`derive_stats()` 从历史推算 reps/lapses/elapsed_days/scheduled_days |
+| `backend/services/review_service.py` | ✅ 完整：到期列表（归档/暂停/未到期三重过滤、不带理解正文）、`review_now`（**用户评级是唯一权威，C7**）、暂停/恢复（幂等）、历史。`create_knowledge` 挂钩 `ensure_schedule`——记一条知识自动进复习循环（D-060） |
+| `backend/api/review.py` | ✅ 7 个端点：`/due`、`/due/count`、`/{id}/schedule`、`/{id}/rate`、`/{id}/suspension`、`/{id}/session`（开 AI 对话复习）、`/{id}/rating-suggestion`、`/{id}/history`。静态路径声明在 `/{knowledge_id}` 之前 |
+| **复习系统** | ✅ **阶段 3 完成**（2026-11-04）：纯自测 + AI 对话式复习（工作流 D，建议不落库、用户评级写排期）。前端 `ReviewCenterPage`（双模式、四级评级、AI 建议仅高亮）+ 详情页排期卡（暂停开关、历史）+ 首页到期条数卡。对话式复习未对真实模型全链路联调（真实路径与学习室共用 SSE 端点与 Provider，fake Provider 已覆盖 HTTP 全流程；真机首次使用建议先开一场便宜的复习确认） |
 | **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
 | 复习/图谱占位页 | ⬜ 诚实占位，明确标注所属阶段与当前进度 |
@@ -713,8 +717,10 @@ def port_state(port, host="127.0.0.1"):
 可以完整地「记一条知识 → 改它 → 看到旧版本原文 → 搜回来 → 归档」，
 也可以在 AI 学习室里对话、把聊出来的理解确认成知识、让 AI 审查并逐条采纳
 （AI 的文字永远进不了「我的理解」，采纳要用户自己打字重写，C1）。
+每条知识自动进复习循环：到期列表 → 纯自测或 AI 对话 → 四级评级 →
+FSRS 排下次时间，全程不配 AI 也能用（D-062），AI 建议永远只是建议（C7）。
 数据落在本机 SQLite，进程被强杀也不丢（WAL 恢复实测过）。
-不能复习、不能建关联、不能备份导出（阶段 3~5）。
+不能建关联、不能备份导出（阶段 4~5）。
 
 ---
 
