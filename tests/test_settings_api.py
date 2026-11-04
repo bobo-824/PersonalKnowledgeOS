@@ -446,6 +446,52 @@ def test_invalid_config_value_reports_field_not_value(ai_env: Path) -> None:
     assert "不是数字" not in str(excinfo.value)
 
 
+def test_curly_quoted_key_gets_a_plain_language_error(ai_env: Path) -> None:
+    """真机联调挖出的真实事故：中文输入法把引号敲成「“”」，
+    python-dotenv 不认识，原样进了值，最后在 httpx 拼 Authorization 头时
+    炸成没人看得懂的 UnicodeEncodeError → 500。
+    现在配置层就拦下，报大白话。报错里只有字段名，没有密钥内容（C6）。"""
+    ai_env.write_text('PKOS_AI_API_KEY=“sk-test-abc12345”\n', encoding="utf-8")
+
+    with pytest.raises(ConfigFileError) as excinfo:
+        get_settings()
+
+    message = str(excinfo.value)
+    assert "ai_api_key" in message
+    assert "非英文字符" in message
+    assert "sk-test-abc12345" not in message
+
+
+def test_non_ascii_anywhere_in_the_key_is_rejected_not_just_at_the_front(ai_env: Path) -> None:
+    """⑨变异测试探出来的缺口：只测「引号在开头」的话，
+    把校验弱化成只看首字符也能蒙混过关。夹在中间的中文引号
+    同样会在 httpx 拼 Authorization 头时炸成 500，一样要拦。
+    （结尾的全角空格不算这类：strip 本来就会把它当空白剥掉，单独测。）"""
+    ai_env.write_text('PKOS_AI_API_KEY=sk-test“abc12345\n', encoding="utf-8")
+    with pytest.raises(ConfigFileError) as excinfo:
+        get_settings()
+    message = str(excinfo.value)
+    assert "ai_api_key" in message
+    assert "非英文字符" in message
+    assert "sk-test-abc12345" not in message
+
+
+def test_trailing_full_width_space_is_stripped_not_rejected(ai_env: Path) -> None:
+    """中文输入法敲空格经常变成全角「　」。它属于空白，剥掉即可，
+    不该和乱码符号一起被当成错误——用户只是多敲了一下空格。"""
+    ai_env.write_text('PKOS_AI_API_KEY=sk-test-abc12345　\n', encoding="utf-8")
+
+    assert get_settings().ai_api_key == "sk-test-abc12345"
+
+
+def test_surrounding_whitespace_in_ai_values_is_stripped(ai_env: Path) -> None:
+    """等号后多打一个空格是新手第二常见事故。两端空白对
+    地址/密钥/模型名都没有意义，剥掉而不是报错。"""
+    ai_env.write_text('PKOS_AI_BASE_URL= https://api.example.com/v1 \n', encoding="utf-8")
+
+    assert get_settings().ai_base_url == "https://api.example.com/v1"
+
+
 # ================================================================ 读配置的规矩
 
 

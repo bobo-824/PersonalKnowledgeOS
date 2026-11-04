@@ -64,6 +64,32 @@ class Settings(BaseSettings):
             return None
         return value
 
+    @field_validator("ai_base_url", "ai_api_key", "ai_model", mode="before")
+    @classmethod
+    def _strip_ai_text(cls, value: object) -> object:
+        # 记事本手填的高频事故：等号后多了空格。两端空白对任何服务商的
+        # 地址/密钥/模型名都没有意义，剥掉是安全的；引号不在这里猜，
+        # 留给下一条校验报出可操作的提示。
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("ai_api_key")
+    @classmethod
+    def _reject_non_ascii_key(cls, value: str) -> str:
+        # 真机联调实测的坑：中文输入法把引号敲成「“”」，python-dotenv
+        # 不认识这种引号，原样进了值，最后在 httpx 拼 Authorization 头时
+        # 才炸成没人看得懂的 UnicodeEncodeError → 500。
+        # 提前在配置层拦下。⚠️ 提示里只有字段名，不带值（C6）。
+        # 只拦密钥不拦地址/模型名：服务商密钥必然是 ASCII，
+        # 而地址/模型名的乱值会走正常的 AI 错误路径（bad_request → 502）。
+        if value and any(ord(ch) > 127 for ch in value):
+            raise ValueError(
+                "含有非英文字符——多半是中文输入法敲出来的引号「“”」或复制粘贴带进来的符号。"
+                "请重新填写：不加引号，或用英文引号"
+            )
+        return value
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _upper(cls, value: object) -> object:
@@ -131,11 +157,17 @@ def get_settings() -> Settings:
             "或者删掉这个文件让它按默认值重新生成。"
         ) from exc
     except ValidationError as exc:
-        fields = "、".join(
-            sorted({str(part) for error in exc.errors() for part in (error.get("loc") or ())})
-        )
+        # 自定义校验（value_error）的 msg 是写给用户看的大白话，要带上；
+        # 其他类型错误只报名字段。两种情况都绝不带值（C6）。
+        problems = []
+        for error in exc.errors():
+            name = "、".join(str(part) for part in (error.get("loc") or ()))
+            if error.get("type") == "value_error":
+                problems.append(f"{name}：{str(error.get('msg', '')).removeprefix('Value error, ')}")
+            else:
+                problems.append(name)
         raise ConfigFileError(
-            f"配置里有不合法的值：{fields or '（未知字段）'}。"
+            f"配置里有不合法的值：{'；'.join(dict.fromkeys(problems)) or '（未知字段）'}。"
             f"来源可能是 {ENV_FILE}，也可能是同名环境变量；"
             "请对照 .env.example 里每项的写法改一下再重启。"
         ) from exc
