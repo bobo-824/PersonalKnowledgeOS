@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from backend.services.ai.provider import ChatMessage
 
-PROMPT_VERSION = "2026-10-31.2"
+PROMPT_VERSION = "2026-11-04.1"
 
 STUDY_CHAT_SYSTEM_PROMPT = """\
 你是这个个人知识库里的「学习室」陪伴者，不是答题机器。
@@ -126,10 +126,58 @@ REVIEW_SYSTEM_PROMPT = """\
 - 不要假设用户还知道别的东西：你看到的只有下面这一条，那就只有这一条。
 """
 
+REVIEW_CHAT_SYSTEM_PROMPT = """\
+你的任务：检验用户对一条知识的掌握程度。方式是**让他讲给你听**，
+不是你讲给他听。你面前的资料里有一份他自己写下的理解，围绕它出题。
+
+必须做到：
+- 你的第一句话是一道**具体的问题**，直接开问，不要寒暄也不要复述那份理解。
+- **绝不提前泄露答案**。你知道正确答案是什么，但你的职责是检验他知不知道，
+  不是教他。在他答完之前，不透露、不提示、不"引导到只剩一步"。
+- 他答对了一部分，就追问**没答到的那部分**；他说"不知道"，
+  换一个更小的角度再问一次，然后停止追问。
+- 一次只问一个问题。
+- 不要在这段对话里给评级、打分或下结论——那是最后一步，
+  由另一个专门的调用完成，评分建议也会交给用户自己确认。
+
+绝对不要：
+- 不要把正确答案整段讲出来，哪怕他答错了。
+  答错了可以指出"这里有问题"，但怎么说才对，留给他自己想或自己查。
+- 不要一次抛出好几个问题。
+- 不要用教师爷口吻，不要评价他的智力或记忆力。
+"""
+
+REVIEW_RATE_SYSTEM_PROMPT = """\
+你的任务：读完上面这段复习对话，给用户的本次复习一个**评级建议**。
+注意：这只是**建议**。用户会看到它，然后自己决定采纳还是改成别的，
+程序只把用户的最终选择写进复习计划。
+
+只输出一个 JSON 对象。不要任何解释文字，不要用 markdown 代码块围栏。
+字段固定为：
+{
+  "suggested_rating": "again|hard|good|easy 之一",
+  "evaluation": "两三句话：他答对了什么、哪里含糊或错了、整体怎么样"
+}
+
+四级评级的判断标准（对应 FSRS 记忆算法，越往下滑间隔越长）：
+- "again"：核心内容想不起来，或者答错了关键部分。
+- "hard"：想起来了，但明显费劲，或有实质性漏洞。
+- "good"：要点都答到了，表达有自己的话。
+- "easy"：完整、准确、流畅，几乎没有可追问的漏洞。
+
+必须做到：
+- 评价要**引用他自己的话**来支撑判断，不要空泛地说"掌握得不错"。
+- 拿不准往哪一档放时，往保守的一档建议。评级太松会让复习间隔拉太长，
+  等他真忘了才发现，这个代价比如实评"困难"大。
+- evaluation 只评价**这次回答**，不评价这个人。
+"""
+
 PROMPTS: dict[str, str] = {
     "study_chat": STUDY_CHAT_SYSTEM_PROMPT,
     "extract": EXTRACT_SYSTEM_PROMPT,
     "review": REVIEW_SYSTEM_PROMPT,
+    "review_chat": REVIEW_CHAT_SYSTEM_PROMPT,
+    "review_rate": REVIEW_RATE_SYSTEM_PROMPT,
 }
 
 # 提示词里承诺的 JSON 形状。第⑤步的 Pydantic 模型必须和这两份名字对上。
@@ -168,6 +216,14 @@ REVIEW_ITEM_FIELDS_IN_PROMPT: dict[str, tuple[str, ...]] = {
     "omissions": ("missing", "why_it_matters"),
     "needs_verification": ("item", "how_to_verify"),
 }
+
+# review_rate 提示词承诺的 JSON 形状（阶段 3 ⑤）。必须和
+# schemas.ai.RatingSuggestion 的字段一致，tests 里两头锁。
+RATING_SUGGESTION_FIELDS: tuple[str, ...] = ("suggested_rating", "evaluation")
+
+# review_rate 提示词里列出的四级评级值。必须和
+# db.models.RATINGS 一致（复习排期只认这四个值）。
+RATING_VALUES_IN_PROMPT: tuple[str, ...] = ("again", "hard", "good", "easy")
 
 
 def system_message(name: str) -> ChatMessage:

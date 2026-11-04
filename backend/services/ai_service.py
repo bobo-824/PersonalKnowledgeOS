@@ -34,6 +34,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from backend.db.base import utcnow
 from backend.db.models import (
+    CONVERSATION_KIND_CHAT,
+    CONVERSATION_KIND_REVIEW,
     CREATED_BY_AI_CONFIRMED,
     DECISION_ACCEPTED,
     MESSAGE_ROLE_ASSISTANT,
@@ -48,12 +50,13 @@ from backend.db.models import (
     KnowledgeVersion,
 )
 from backend.domain.versioning import Understanding, next_version_number
-from backend.schemas.ai import KnowledgeDraft, ReviewResult
+from backend.schemas.ai import KnowledgeDraft, RatingSuggestion, ReviewResult
 from backend.schemas.knowledge import KnowledgeCreate
 from backend.services.ai.errors import AiError
 from backend.services.ai.prompts import PROMPT_VERSION, system_message
 from backend.services.ai.provider import AiProvider, ChatMessage
 from backend.services.knowledge_service import append_version, create_knowledge, get_knowledge
+from backend.services.review_service import require_live_knowledge
 from backend.services.search_service import sync_index
 
 logger = logging.getLogger(__name__)
@@ -97,16 +100,18 @@ class DraftConfirmation:
 # ================================================================ 会话与消息
 
 
-def create_conversation(session: Session, first_user_text: str) -> AiConversation:
+def create_conversation(
+    session: Session, first_user_text: str, *, kind: str = CONVERSATION_KIND_CHAT
+) -> AiConversation:
     """新建会话。标题取用户第一句话的前若干字，**不让 AI 起名**。
 
     让 AI 起名要多发一次付费调用，而且对话还没聊完就得先等 AI
     （D-042 要求批量付费操作先确认）。用户之后可以自己在界面上改。
     """
-    conversation = AiConversation(title=_derive_title(first_user_text))
+    conversation = AiConversation(title=_derive_title(first_user_text), kind=kind)
     session.add(conversation)
     session.commit()
-    logger.info("已创建 AI 会话 %s", conversation.id)
+    logger.info("已创建 AI 会话 %s（%s）", conversation.id, kind)
     return conversation
 
 
@@ -117,10 +122,16 @@ def get_conversation(session: Session, conversation_id: str) -> AiConversation:
     return conversation
 
 
-def list_conversations(session: Session, limit: int = 50) -> list[AiConversation]:
+def list_conversations(
+    session: Session, limit: int = 50, *, kind: str = CONVERSATION_KIND_CHAT
+) -> list[AiConversation]:
+    """学习室的历史列表。默认只列 kind="chat"：对话式复习的会话
+    复用这套表，但属于复习中心（复习中心经 review_sessions 的
+    conversation_id 指过去），混进学习室只会让人找不到自己的闲聊记录。"""
     return list(
         session.scalars(
             select(AiConversation)
+            .where(AiConversation.kind == kind)
             .order_by(AiConversation.updated_at.desc())
             .limit(limit)
         )
@@ -453,7 +464,97 @@ def accept_ai_review(
     return get_knowledge(session, knowledge.id)
 
 
+# ================================================================ 工作流 D：对话式复习
+
+
+def start_review_chat(session: Session, provider: AiProvider, knowledge_id: str) -> AiConversation:
+    """开一场对话式复习：AI 根据当前理解出**第一道题**（D-063）。
+
+    问答原文复用 ai_conversations / ai_messages（kind="review"），
+    后续追问走 stream_reply——它按 kind 自动换复习提示词。
+    首问以助手消息落库（seq=1），所以这场对话里第一条就是问题。
+
+    ⚠️ AI 失败时**什么都不留**：先流式拿到首问，再建会话落库——
+    失败的半场复习不该在历史里留一个空壳（D-062 的降级由前端处理，
+    它收到 AiError 就退回纯自测界面）。
+    """
+    knowledge = require_live_knowledge(session, knowledge_id)
+    version = knowledge.current_version
+
+    request = [
+        system_message("review_chat"),
+        ChatMessage(role="user", content="\n".join(_understanding_parts(knowledge, version))),
+    ]
+    question = "".join(provider.stream_chat(request))
+
+    conversation = AiConversation(
+        title=_review_title(knowledge.title), kind=CONVERSATION_KIND_REVIEW
+    )
+    session.add(conversation)
+    session.flush()  # 先拿到 id，_append_message 要用它生成序号
+    _append_message(session, conversation, MESSAGE_ROLE_ASSISTANT, question, provider=provider)
+    session.commit()
+    logger.info("知识 %s 的对话式复习已开始（会话 %s）", knowledge.id, conversation.id)
+    return conversation
+
+
+def suggest_review_rating(
+    session: Session, provider: AiProvider, knowledge_id: str, conversation_id: str
+) -> RatingSuggestion:
+    """读完这段复习对话，给出评级**建议**和评价文字（C7：只是建议）。
+
+    ⚠️ 结果**不落库**：用户看到建议后自己确认或改评级，
+    最终以 POST /rate 提交的 `rating` 为准。AI 的建议由调用方决定
+    是否放进 rate 请求的 `suggested_rating` 存档——排期永远只读 `rating`。
+
+    发给 AI 的还是 C5 那一套：对话原文 + 当前版本的理解。
+    不校验对话"属于"哪条知识——会话和知识之间没有外键，
+    传错了最多得到一份驴唇不对马嘴的建议，而它反正要过用户这一关。
+    """
+    knowledge = require_live_knowledge(session, knowledge_id)
+    conversation = get_conversation(session, conversation_id)
+    transcript = [
+        _as_chat_message(m) for m in _context_messages(session, conversation.id)
+    ]
+    if not transcript:
+        raise ValueError("这场复习对话还没有内容，先回答 AI 的问题再来要评级建议。")
+
+    closing = "\n".join(_understanding_parts(knowledge, knowledge.current_version))
+    result = provider.chat(
+        [
+            system_message("review_rate"),
+            *transcript,
+            ChatMessage(
+                role="user",
+                content=f"参考——这条知识的当前理解：\n{closing}\n请只输出 JSON。",
+            ),
+        ],
+        RatingSuggestion,
+    )
+    logger.info(
+        "对话 %s 的评级建议已生成：%s", conversation.id, result.value.suggested_rating
+    )
+    return result.value
+
+
 # ==================================================================== 内部
+
+
+def _understanding_parts(knowledge: Knowledge, version: KnowledgeVersion) -> list[str]:
+    """当前版本理解的最小表述（C5）。审查（工作流 C）和复习出题（工作流 D）
+    发给 AI 的内容都从这里出，保证两处**漏任何一边都不会悄悄不一致**。"""
+    parts = [f"名称：{knowledge.title}", f"领域：{knowledge.domain or '（未填）'}"]
+    parts.append(f"我自己的理解：{version.user_understanding}")
+    if version.reasoning:
+        parts.append(f"我的推理依据：{version.reasoning}")
+    if version.open_questions:
+        parts.append(f"我还没解决的问题：{version.open_questions}")
+    return parts
+
+
+def _review_title(title: str) -> str:
+    """复习会话的标题。列宽 String(100)，知识标题最长 200，必须截断。"""
+    return f"复习：{title}"[:_TITLE_MAX_LENGTH]
 
 
 def _derive_title(first_user_text: str) -> str:
@@ -492,7 +593,15 @@ def _as_chat_message(message: AiMessage) -> ChatMessage:
 def _conversation_request(
     session: Session, conversation: AiConversation
 ) -> list[ChatMessage]:
-    return [system_message("study_chat")] + [
+    # 复习对话和学习室用不同的系统提示词：前者在检验记忆（不许泄露答案），
+    # 后者在陪读（可以先讲一半）。分错的表现很隐蔽——模型行为只差一点，
+    # 用户只会觉得"AI 复习时话太多"，排查不到这里。
+    prompt_name = (
+        "review_chat"
+        if conversation.kind == CONVERSATION_KIND_REVIEW
+        else "study_chat"
+    )
+    return [system_message(prompt_name)] + [
         _as_chat_message(m) for m in _context_messages(session, conversation.id)
     ]
 
@@ -503,12 +612,7 @@ def _review_request(knowledge: Knowledge, version: KnowledgeVersion) -> list[Cha
     只有标题、领域和当前版本的三个理解字段。
     历史版本、来源全文、其他知识，一个都不发。
     """
-    parts = [f"名称：{knowledge.title}", f"领域：{knowledge.domain or '（未填）'}"]
-    parts.append(f"我自己的理解：{version.user_understanding}")
-    if version.reasoning:
-        parts.append(f"我的推理依据：{version.reasoning}")
-    if version.open_questions:
-        parts.append(f"我还没解决的问题：{version.open_questions}")
+    parts = _understanding_parts(knowledge, version)
     return [system_message("review"), ChatMessage(role="user", content="\n".join(parts))]
 
 
@@ -613,5 +717,7 @@ __all__ = [
     "list_reviews",
     "review_knowledge",
     "review_result",
+    "start_review_chat",
     "stream_reply",
+    "suggest_review_rating",
 ]

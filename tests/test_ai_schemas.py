@@ -23,6 +23,7 @@ from backend.db.models import (
 from backend.schemas.ai import (
     CorrectPoint,
     KnowledgeDraft,
+    RatingSuggestion,
     NeedsVerificationItem,
     ReviewError,
     ReviewOmission,
@@ -30,9 +31,11 @@ from backend.schemas.ai import (
     SourceDraft,
 )
 from backend.schemas.knowledge import KnowledgeCreate, SourceCreate, SourceKind
+from backend.db.models import RATINGS
 from backend.services.ai.prompts import (
     EXTRACT_FIELDS,
     EXTRACT_SYSTEM_PROMPT,
+    RATING_SUGGESTION_FIELDS,
     REVIEW_CATEGORIES_IN_PROMPT,
     REVIEW_ITEM_FIELDS_IN_PROMPT,
     REVIEW_SYSTEM_PROMPT,
@@ -398,3 +401,18 @@ def test_ai_supplements_do_not_enter_the_saved_record_by_themselves() -> None:
     created = KnowledgeCreate.model_validate(to_create_payload(draft))
     assert created.user_understanding == "我自己说的话"
     assert "AI 补的一句" not in created.user_understanding
+
+
+# ================================================= 对话式复习（阶段 3 ⑤）
+
+
+def test_rating_suggestion_fields_exactly_match_the_prompt() -> None:
+    assert set(RatingSuggestion.model_fields) == set(RATING_SUGGESTION_FIELDS)
+
+
+def test_rating_suggestion_vocabulary_is_the_database_vocabulary() -> None:
+    """suggested_rating 复用 review_api 的 ReviewRating Literal（单一来源），
+    词表和 review_sessions.rating 的常量必须一致。"""
+    assert set(
+        RatingSuggestion.model_fields["suggested_rating"].annotation.__args__
+    ) == set(RATINGS)

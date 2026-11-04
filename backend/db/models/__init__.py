@@ -4,7 +4,12 @@
 两套来源词表的区别见 source.py 顶部说明与 docs/DECISIONS.md D-029。
 """
 
-from backend.db.models.ai_conversation import AiConversation
+from backend.db.models.ai_conversation import (
+    CONVERSATION_KINDS,
+    CONVERSATION_KIND_CHAT,
+    CONVERSATION_KIND_REVIEW,
+    AiConversation,
+)
 from backend.db.models.ai_message import (
     ERROR_KINDS,
     ERROR_KIND_AUTH_REJECTED,
@@ -47,6 +52,25 @@ from backend.db.models.knowledge_version import (
     CREATED_BY_VALUES,
     KnowledgeVersion,
 )
+from backend.db.models.review_schedule import (
+    RATING_AGAIN,
+    RATING_EASY,
+    RATING_GOOD,
+    RATING_HARD,
+    RATINGS,
+    REVIEW_MODES,
+    REVIEW_MODE_AI_CHAT,
+    REVIEW_MODE_SELF_TEST,
+    SCHEDULE_LEARNING,
+    SCHEDULE_RELEARNING,
+    SCHEDULE_REVIEW,
+    SCHEDULE_STATES,
+    SCHEDULE_STATUSES,
+    SCHEDULE_STATUS_ACTIVE,
+    SCHEDULE_STATUS_SUSPENDED,
+    ReviewSchedule,
+)
+from backend.db.models.review_session import ReviewSession
 from backend.db.models.source import (
     SOURCE_KINDS,
     SOURCE_KIND_ARTICLE,
@@ -62,6 +86,9 @@ from backend.db.models.source import (
 
 __all__ = [
     "CATEGORY_CORRECT_POINTS",
+    "CONVERSATION_KINDS",
+    "CONVERSATION_KIND_CHAT",
+    "CONVERSATION_KIND_REVIEW",
     "CATEGORY_ERRORS",
     "CATEGORY_FOLLOW_UP_QUESTIONS",
     "CATEGORY_NEEDS_VERIFICATION",
@@ -82,8 +109,23 @@ __all__ = [
     "MESSAGE_ROLES",
     "MESSAGE_ROLE_ASSISTANT",
     "MESSAGE_ROLE_USER",
+    "RATING_AGAIN",
+    "RATING_EASY",
+    "RATING_GOOD",
+    "RATING_HARD",
+    "RATINGS",
     "REVIEW_CATEGORIES",
     "REVIEW_DECISIONS",
+    "REVIEW_MODES",
+    "REVIEW_MODE_AI_CHAT",
+    "REVIEW_MODE_SELF_TEST",
+    "SCHEDULE_LEARNING",
+    "SCHEDULE_RELEARNING",
+    "SCHEDULE_REVIEW",
+    "SCHEDULE_STATES",
+    "SCHEDULE_STATUSES",
+    "SCHEDULE_STATUS_ACTIVE",
+    "SCHEDULE_STATUS_SUSPENDED",
     "SOURCE_KINDS",
     "SOURCE_KIND_ARTICLE",
     "SOURCE_KIND_BOOK",
@@ -105,5 +147,7 @@ __all__ = [
     "IdempotencyKey",
     "Knowledge",
     "KnowledgeVersion",
+    "ReviewSchedule",
+    "ReviewSession",
     "Source",
 ]

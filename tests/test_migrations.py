@@ -30,6 +30,8 @@ from backend.db.models import (
     IdempotencyKey,
     Knowledge,
     KnowledgeVersion,
+    ReviewSchedule,
+    ReviewSession,
 )
 
 CORE_TABLES = ["alembic_version", "knowledge", "knowledge_versions", "sources"]
@@ -40,6 +42,7 @@ AI_TABLES = [
     "ai_review_decisions",
     "idempotency_keys",
 ]
+REVIEW_TABLES = ["review_schedules", "review_sessions"]
 
 
 def table_names(session: Session) -> set[str]:
@@ -253,7 +256,7 @@ def test_downgrade_upgrade_roundtrip_leaves_no_residue(migrated_database) -> Non
     command.upgrade(config, "head")
 
     restored = snapshot()
-    for name in (*CORE_TABLES, *AI_TABLES, "knowledge_fts"):
+    for name in (*CORE_TABLES, *AI_TABLES, *REVIEW_TABLES, "knowledge_fts"):
         assert name in restored, f"重新 upgrade 后缺少 {name}"
 
     engine = create_engine(url)
@@ -505,3 +508,121 @@ def test_idempotency_key_rejects_unknown_knowledge(db_session: Session) -> None:
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+# ---------------------------------------------------------------- 迁移 0003
+
+
+def make_schedule(session: Session, title: str = "待复习的知识") -> Knowledge:
+    knowledge = Knowledge(title=title, domain="机器学习")
+    session.add(knowledge)
+    session.flush()
+    session.add(
+        ReviewSchedule(
+            knowledge_id=knowledge.id,
+            state="learning",
+            step=0,
+            due=utcnow(),
+        )
+    )
+    session.commit()
+    return knowledge
+
+
+def test_review_tables_exist(db_session: Session) -> None:
+    present = table_names(db_session)
+    missing = [name for name in REVIEW_TABLES if name not in present]
+    assert not missing, f"缺少表：{missing}"
+
+
+def test_one_schedule_per_knowledge(db_session: Session) -> None:
+    """一条知识只有一份排期——排期是知识的属性，出现两行就是数据坏了。"""
+    knowledge = make_schedule(db_session)
+    db_session.add(
+        ReviewSchedule(
+            knowledge_id=knowledge.id, state="learning", step=0, due=utcnow()
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_review_sessions_allow_many_per_knowledge(db_session: Session) -> None:
+    """历史记录和排期相反：一条知识要能积累任意多次复习。"""
+    knowledge = make_schedule(db_session)
+    db_session.add_all(
+        [
+            ReviewSession(
+                knowledge_id=knowledge.id, reviewed_at=utcnow(), rating="good",
+                mode="self_test",
+            ),
+            ReviewSession(
+                knowledge_id=knowledge.id, reviewed_at=utcnow(), rating="again",
+                mode="ai_chat",
+            ),
+        ]
+    )
+    db_session.commit()
+    assert (
+        db_session.execute(text("SELECT COUNT(*) FROM review_sessions")).scalar_one()
+        == 2
+    )
+
+
+def test_review_tables_reject_unknown_knowledge(db_session: Session) -> None:
+    db_session.add(
+        ReviewSchedule(
+            knowledge_id="不存在的知识ID", state="learning", step=0, due=utcnow()
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+# ---------------------------------------------------------------- 复习对话承载列（阶段 3 ⑤）
+
+
+def test_conversation_kind_defaults_to_chat(db_session: Session) -> None:
+    """0002 时代的会话没有 kind，迁移的 server_default 要把它们归入学习室。"""
+    conversation = AiConversation(title="老会话")
+    db_session.add(conversation)
+    db_session.commit()
+    db_session.expire_all()
+    reloaded = db_session.get(AiConversation, conversation.id)
+    assert reloaded.kind == "chat"
+
+
+def test_clearing_conversations_nulls_review_link_but_keeps_the_record(
+    db_session: Session,
+) -> None:
+    """D-041 + ⑤：清空对话历史删得掉问答原文，删不掉用户的评级记录。
+
+    对话用原生 SQL 删（绕开 ORM 的级联设置），只有这样才测得到
+    数据库层的 ON DELETE SET NULL 是不是真的建出来了。
+    """
+    knowledge = Knowledge(title="过拟合", domain="机器学习")
+    db_session.add(knowledge)
+    db_session.flush()
+    conversation = AiConversation(title="复习：过拟合", kind="review")
+    db_session.add(conversation)
+    db_session.flush()
+    session_row = ReviewSession(
+        knowledge_id=knowledge.id,
+        reviewed_at=datetime.now(timezone.utc),
+        rating="good",
+        mode="ai_chat",
+        conversation_id=conversation.id,
+    )
+    db_session.add(session_row)
+    db_session.commit()
+
+    db_session.execute(text("DELETE FROM ai_conversations"))
+    db_session.commit()
+
+    db_session.expire_all()
+    reloaded = db_session.get(ReviewSession, session_row.id)
+    assert reloaded is not None, "清空对话把评级记录也删了"
+    assert reloaded.conversation_id is None
+    assert db_session.execute(text("SELECT COUNT(*) FROM ai_messages")).scalar_one() == 0

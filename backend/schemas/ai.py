@@ -36,6 +36,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from backend.schemas.knowledge import SourceKind
+from backend.schemas.review_api import ReviewRating
 
 # ===== 长度上限 =====
 # 和 prompts.py 里承诺给 AI 的 JSON 形状必须一致，
@@ -169,3 +170,18 @@ class ReviewResult(_AiOutputModel):
             or self.follow_up_questions
             or self.needs_verification
         )
+
+
+# ============================================================ 工作流 D：对话式复习
+
+
+class RatingSuggestion(_AiOutputModel):
+    """AI 对一次对话式复习的**评级建议**（阶段 3 ⑤ / D-063）。
+
+    ⚠️ 这只是建议。它返回给前端展示，最终写进 `review_sessions.rating`
+    的只能是用户确认或改过的值（C7）；AI 的原话最多进 `suggested_rating`
+    存档，排期计算永远不读它。
+    """
+
+    suggested_rating: ReviewRating
+    evaluation: _REVIEW_TEXT
