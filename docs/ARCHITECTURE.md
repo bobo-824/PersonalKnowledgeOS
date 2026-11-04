@@ -673,7 +673,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 5562 行 Python，前端 34 个 TS/TSX 文件，测试 569 个（14 个测试文件）。
+后端 8626 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 688 个（20 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
@@ -682,7 +682,8 @@ def port_state(port, host="127.0.0.1"):
 | 迁移 0001（3 表 + 索引 + FTS5） | ✅ 完整，可 upgrade 可 downgrade |
 | 迁移 0002（5 张 AI 表 + 索引 + 级联） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移 |
 | 迁移 0003（2 张复习表 + `ai_conversations.kind`） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移 |
-| ORM 模型 | ✅ 10 个模型 + `UTCDateTime` + 词表常量 |
+| 迁移 0004（`knowledge_relations` 关系表） | ✅ 完整，可 upgrade 可 downgrade，`alembic check` 无漂移。同方向唯一约束 + 自关联 CHECK |
+| ORM 模型 | ✅ 11 个模型 + `UTCDateTime` + 词表常量 |
 | `/api/health` | ✅ 完整，含降级路径 |
 | 前端静态托管 + SPA 回落 | ✅ 完整 |
 | 前端外壳、路由、响应式导航 | ✅ 完整 |
@@ -700,14 +701,14 @@ def port_state(port, host="127.0.0.1"):
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
 | `backend/services/ai/` | ✅ 完整（1135 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`、`factory.py` 按配置构造 + 连通性探测 |
-| **AI 集成** | ✅ **阶段 2 完成**（2026-11-04）：三个工作流从界面一路跑到数据库。前端 `frontend/src/components/ai/`（草稿确认面板、审查区）+ `frontend/src/lib/ai-{api,queries,schemas}.ts`（SSE 手工切帧、zod 契约逐字段对齐后端）。真机联调已对真实 DeepSeek 全链路跑通（含流式、提取、审查、采纳、配置写入即时生效）。AI 相关前端页面按路由 lazy 分包，主包 390 kB |
+| **AI 集成** | ✅ **阶段 2 完成**（2026-11-04）：三个工作流从界面一路跑到数据库。前端 `frontend/src/components/ai/`（草稿确认面板、审查区）+ `frontend/src/lib/ai-{api,queries,schemas}.ts`（SSE 手工切帧、zod 契约逐字段对齐后端）。真机联调已对真实 DeepSeek 全链路跑通（含流式、提取、审查、采纳、配置写入即时生效）。AI 相关前端页面按路由 lazy 分包（主包现为 498 kB） |
 | `backend/domain/scheduler.py` | ✅ 完整：FSRS 接线纯函数（不 import sqlalchemy/fastapi）。`Scheduler(enable_fuzzing=False)`、Card ⇄ 排期行双向映射（`step` 必须持久化）、`derive_stats()` 从历史推算 reps/lapses/elapsed_days/scheduled_days |
 | `backend/services/review_service.py` | ✅ 完整：到期列表（归档/暂停/未到期三重过滤、不带理解正文）、`review_now`（**用户评级是唯一权威，C7**）、暂停/恢复（幂等）、历史。`create_knowledge` 挂钩 `ensure_schedule`——记一条知识自动进复习循环（D-060） |
 | `backend/api/review.py` | ✅ 7 个端点：`/due`、`/due/count`、`/{id}/schedule`、`/{id}/rate`、`/{id}/suspension`、`/{id}/session`（开 AI 对话复习）、`/{id}/rating-suggestion`、`/{id}/history`。静态路径声明在 `/{knowledge_id}` 之前 |
 | **复习系统** | ✅ **阶段 3 完成**（2026-11-04）：纯自测 + AI 对话式复习（工作流 D，建议不落库、用户评级写排期）。前端 `ReviewCenterPage`（双模式、四级评级、AI 建议仅高亮）+ 详情页排期卡（暂停开关、历史）+ 首页到期条数卡。对话式复习未对真实模型全链路联调（真实路径与学习室共用 SSE 端点与 Provider，fake Provider 已覆盖 HTTP 全流程；真机首次使用建议先开一场便宜的复习确认） |
-| **知识图谱** | ❌ 未实现（阶段 4）。`knowledge_relations` 表未建 |
+| **知识图谱** | ✅ **阶段 4 完成**（2026-11-04）：候选召回（FTS5 三字滑窗 OR + 短标题 LIKE，免费实时不落库，D-064）→ AI 逐对判断（RelationSuggestion 过 C3，单对失败不阻断）→ 用户审核（accepted 才进图谱，rejected/ignored 永久保留防重复骚扰）。`backend/domain/relation.py` 纯函数状态机、`backend/services/relation_service.py`（564 行）、`backend/api/relations.py` 8 个端点。前端 `KnowledgeGraphPage`（React Flow 图谱 + 待审队列 + 成长统计）+ 详情页「相关知识」卡，`@xyflow/react` 按路由 lazy 分包 |
 | **备份与导出** | ❌ 未实现（阶段 5）。`data/backups/` 目录会创建但里面永远是空的 |
-| 复习/图谱占位页 | ⬜ 诚实占位，明确标注所属阶段与当前进度 |
+| 图谱相关前端 | ✅ `frontend/src/lib/relation-{schemas,api,queries}.ts`（zod 契约对齐后端）+ `KnowledgeGraphPage` + 详情页 `RelatedKnowledgeCard`。原「复习/图谱占位页」只剩复习的诚实占位已随阶段 3 移除，占位页清零 |
 
 **用户真实的 `data/app.db` 已有真实使用数据**：阶段 2 真机联调在用户库里
 留下 2 条知识（各 2 个版本）、2 场对话、2 份审查——都是用户自己的内容，
@@ -719,8 +720,10 @@ def port_state(port, host="127.0.0.1"):
 （AI 的文字永远进不了「我的理解」，采纳要用户自己打字重写，C1）。
 每条知识自动进复习循环：到期列表 → 纯自测或 AI 对话 → 四级评级 →
 FSRS 排下次时间，全程不配 AI 也能用（D-062），AI 建议永远只是建议（C7）。
+知识图谱：候选对免费自动召回，点一次按钮让 AI 逐对判断（点之前明示请求数），
+确认过的关系才出现在图谱上，拒绝过的对不再被提出。
 数据落在本机 SQLite，进程被强杀也不丢（WAL 恢复实测过）。
-不能建关联、不能备份导出（阶段 4~5）。
+不能备份导出、没有移动端优化（阶段 5）。
 
 ---
 
