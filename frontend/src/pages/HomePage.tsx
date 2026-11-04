@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "react-router-dom"
 import {
   Activity,
+  BrainCircuit,
   CircleCheck,
   CircleX,
   Database,
@@ -13,6 +15,7 @@ import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useDueCount } from "@/lib/review-queries"
 
 type HealthResponse = {
   status: "ok" | "degraded"
@@ -36,6 +39,49 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
+function DueReviewCard() {
+  const { data, isPending, isError } = useDueCount()
+  const count = data?.count ?? 0
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BrainCircuit aria-hidden="true" className="size-5 text-primary" />
+          今日复习
+        </CardTitle>
+        <CardDescription>到期的知识会自动排队，评完即清。</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap items-center gap-3">
+        {isPending && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle aria-hidden="true" className="size-4 animate-spin" />
+            正在读取…
+          </p>
+        )}
+        {isError && (
+          <p className="text-sm text-muted-foreground">暂时查不到复习排期。</p>
+        )}
+        {data && count === 0 && (
+          <p className="text-sm text-muted-foreground">
+            现在没有到期的知识。该干嘛干嘛，到期了这里会提醒。
+          </p>
+        )}
+        {data && count > 0 && (
+          <>
+            <p className="text-2xl font-semibold tabular-nums">{count}</p>
+            <Button className="min-h-11 px-4" asChild>
+              <Link to="/review">
+                开始复习
+              </Link>
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 export function HomePage() {
   const { data, isPending, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["health"],
@@ -50,6 +96,8 @@ export function HomePage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <DueReviewCard />
+
       <div className="flex items-center gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Activity aria-hidden="true" className="size-5" />
