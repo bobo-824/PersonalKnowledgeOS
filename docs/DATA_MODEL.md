@@ -492,10 +492,10 @@ ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 
 ---
 
-## 后续阶段的表（尚未创建）
+## 规划中的表：兑现情况
 
-以下是 Blueprint 5.2~5.4 规划、但**当前数据库里还不存在**的表。
-列在这里是为了说明字段设计的连贯性，不要误以为已经实现。
+以下是 Blueprint 5.2~5.4 规划的表。阶段 2/3/4 的都已落地，
+本节保留最初的设计对照，避免误以为哪些表还没建。
 
 > **阶段 2 的五张 AI 表已实现并接入业务**，字段级说明见上文
 > 「阶段 2 的五张 AI 表」一节。
@@ -506,11 +506,48 @@ ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 > 造成重复记录"，这三件事各需要一张表。理由详见 `DECISIONS.md` 第九节。
 >
 > **阶段 3 的两张复习表也已实现**，见上文「阶段 3 的两张复习表」。
-> 下面只剩阶段 4 的一张。
+> **阶段 4 的关系表也已实现**（迁移 0004），见下节。
 
-| 表 | 阶段 | 关键字段 | 已知风险 |
-|---|---|---|---|
-| `knowledge_relations` | 4 | 关系类型、解释、依据、置信度、`status`(pending/accepted/rejected) | 图谱只查 accepted |
+### 阶段 4 的一张关系表（迁移 0004，已实现）
+
+#### `knowledge_relations`
+
+一条候选 = AI（或将来用户手动）提出"source 和 target 有某种关系"，
+附上解释与依据，等用户处置。词表与状态机在 `backend/domain/relation.py`。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | |
+| `source_id` | String(36) FK → knowledge | **有向**：source → target。语义随 `relation_type` 变（前置知识="target 是 source 的前置"）。级联删除只是兜底——知识没有删除端点 |
+| `target_id` | String(36) FK → knowledge | 同上 |
+| `relation_type` | String(32) | 六类固定词表（prerequisite/deeper/analogy/contrast/application/component）或 AI 提的自定义短语（D-065）。校验在 `domain/relation.is_valid_relation_type` |
+| `explanation` | Text NOT NULL | 为什么相关。**没有它候选不许落库**（工作流 E 硬要求，Pydantic 层先拦一道） |
+| `evidence` | Text NOT NULL | 依据：引用双方内容里的具体说法 |
+| `confidence` | Float NOT NULL | **只用于排序**（C7），数值必须落在 [0,1]，永远不作为自动通过的依据 |
+| `status` | String(16) | pending / accepted / rejected / ignored。只有 pending 可处置，处置后是终态 |
+| `model` | String(100) NULL | 产出这条候选的模型。纯本地召回占位 / 手动建的关联为 NULL |
+| `prompt_version` | String(16) NULL | 判断时用的提示词版本 |
+| `reviewed_at` | UTCDateTime NULL | 用户处置的时间 |
+| `created_at` / `updated_at` | UTCDateTime | |
+
+索引与约束：
+
+| 名字 | 内容 | 为什么 |
+|---|---|---|
+| `uq_knowledge_relations_pair` | UNIQUE (source_id, target_id) | 同一对知识同方向只允许一行（**含 rejected**）。用户拒绝过一次，AI 换个类型再来一遍也算骚扰；想换类型走「修改类型」处置。注意没有 relation_type 维度——这是有意的 |
+| `ck_knowledge_relations_not_self` | CHECK (source_id != target_id) | 自关联毫无意义，数据库层直接拦 |
+| `ix_knowledge_relations_status` | status | 待审核队列 `WHERE status='pending'` |
+| `ix_knowledge_relations_source_id` / `target_id` | 各自 | 详情页"相关知识"两个方向的查询 |
+
+**防重复骚扰的两道锁**：召回侧把任何状态（含 rejected/ignored）的既有对排除出候选（不分方向，`canonical_pair` 排序后比较）；数据库侧唯一约束兜底并发窗口。
+
+**候选不落库**：召回（免费、纯本地）产出的"待判断对"**不写这张表**——
+explanation/evidence 是 NOT NULL，只有 AI 判断过的东西才配有一行。
+候选每次实时计算，新知识天然就在候选池里，不需要队列表或钩子。
+
+| 表 | 阶段 | 状态 |
+|---|---|---|
+| `knowledge_relations` | 4 | ✅ 已实现（2026-11-04） |
 
 ### ✅ 阶段 3 的 FSRS 字段不匹配（已解决）
 
