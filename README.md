@@ -74,6 +74,16 @@ python scripts\setup.py
 
 ## 启动
 
+### 桌面图标（最省事）
+
+安装完之后运行一次：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-shortcut.ps1
+```
+
+桌面上会出现绿色的「个人知识库」图标，**双击即可启动**：服务没在跑就自动拉起并打开页面；已经在跑就直接打开页面（不会起第二个服务）。想停止应用，关掉任务栏上那个最小化的黑色窗口就行。
+
 ### PowerShell（推荐）
 
 ```powershell
