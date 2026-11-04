@@ -6,10 +6,7 @@ ORM 模型在 `backend/db/models/`，两者必须保持一致
 （用 `uv run alembic check` 验证，不一致会报漂移；0002 是手写的，
 写完立刻 check 过，实测无漂移）。
 
-> ⚠️ **0002 的五张表已经建好，但阶段 2 的业务代码还没写。**
-> 现在数据库里它们全是 0 行，没有任何接口会读写它们。
-> 字段级说明在阶段 2 收尾（第⑩步）补进本文件；
-> 目前每张表为什么必须存在，写在各自的 ORM 模型文件顶部注释里。
+> **阶段 2 已收尾，五张 AI 表的字段级说明已补进本文件（见「阶段 2 的五张 AI 表」一节）。**
 
 > 为什么这份说明放这里而不是 `alembic.ini`：Alembic 用**操作系统区域编码**
 > （中文 Windows 是 GBK）读 `alembic.ini`，那个文件里写中文会直接
@@ -323,6 +320,75 @@ FTS5 会自动创建 5 张影子表：`knowledge_fts_data`、`knowledge_fts_idx`
 
 ---
 
+## 阶段 2 的五张 AI 表（迁移 0002，已实现）
+
+> 第⑩步补的字段级说明。每张表为什么必须存在，写在各自 ORM 模型文件顶部注释里；
+> 三张超出 Blueprint 原计划的表的动机见 `DECISIONS.md` 第九节。
+> **全部是旁路**：删掉这五张表，知识库核心功能不受任何影响（约束 C4）。
+
+### `ai_conversations`
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `title` | String(100) NOT NULL | 从第一条用户消息截断而来（D-042：不让 AI 起名）。生成时做空白归一 |
+| `created_at` / `updated_at` | UTCDateTime | `updated_at` 每追加一条消息就 bump（服务层手动维护，列表按它倒序） |
+
+索引：`ix_ai_conversations_updated_at`。
+
+### `ai_messages`
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `conversation_id` | FK → ai_conversations | 数据库级 `ON DELETE CASCADE`：清空对话历史只删这里，不碰知识 |
+| `seq` | Integer NOT NULL | 会话内从 0 递增，服务层取 `MAX(seq)+1`；`(conversation_id, seq)` 有唯一约束 |
+| `role` | String(16) | `user` / `assistant`，常量在 `db/models/__init__.py` |
+| `content` | Text NOT NULL | 原样保存，包括换行——前端 `whitespace-pre-wrap` 显示 |
+| `model` | String(100) 可空 | 产生这条回复的模型名；用户消息为 NULL |
+| `prompt_tokens` / `completion_tokens` / `duration_ms` | Integer 可空 | **流式回复拿不到精确 token 数时就是 NULL**（OpenAI 兼容流的 usage 需要额外开关，阶段 2 没开）。审查（非流式）三列全有值。别假设它们非空 |
+| `error_kind` | String(32) 可空 | **非 NULL = 失败占位**：`content` 是程序写给用户看的那句话，不是 AI 原文；前端用错误样式显示，且不把它当上下文发给 AI。取值词表 `ERROR_KINDS` |
+| `created_at` | UTCDateTime | |
+
+### `ai_reviews`
+
+一次 AI 审查 = 一行。审的是哪个版本，靠 `version_id` + 冗余的 `version_number` 语义（响应层计算）。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `knowledge_id` | FK → knowledge | 审查归属。采纳路径由此反查知识，调用方传错 ID 会 404 |
+| `version_id` | FK → knowledge_versions | **审的是哪一版**。采纳出新版后，这份审查永远指向旧版——审查是历史事实，不随版本推进改写 |
+| `model` / `prompt_version` | String | 用的什么模型、哪一版提示词。排查"AI 表现变化"唯一能信的锚点 |
+| `result_json` | Text NOT NULL | **校验通过后的** `ReviewResult.model_dump_json()`。五个类别数组定死顺序，处置靠 `(category, item_index)` 定位，所以**写入后永不 UPDATE** |
+| `prompt_tokens` / `completion_tokens` / `duration_ms` | Integer 可空 | 非流式，三列全有值 |
+| `created_at` | UTCDateTime | |
+
+### `ai_review_decisions`
+
+用户对审查里某一条的处置。**三个取值平等**：`accepted` / `ignored` / `disagreed`，没有默认偏向（C7）。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | String(36) PK | UUID |
+| `review_id` | FK → ai_reviews | |
+| `category` | String(32) | `correct_points` / `errors` / `omissions` / `follow_up_questions` / `needs_verification`，词表 `REVIEW_CATEGORIES` |
+| `item_index` | Integer | 该类别数组里的下标，从 0 开始。**数组顺序就是地址**，所以 `result_json` 不能改 |
+| `decision` | String(16) | 见上 |
+| `created_at` / `updated_at` | UTCDateTime | 改主意是 UPDATE 这一行，不是插新行；`(review_id, category, item_index)` 唯一 |
+
+### `idempotency_keys`
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `key` | String(64) PK | 前端为每次"确认草稿"生成的 UUID |
+| `knowledge_id` | FK → knowledge | 这个键当时创建的那条知识。重放时按它返回**同一条** |
+| `created_at` | UTCDateTime | |
+
+已知极窄窗口（D-052）：知识行 commit 与本表 commit 之间进程被杀，重试会多一条记录。单人本地应用权衡后接受。
+
+---
+
 ## 跨表约定
 
 ### 时间字段：一律 UTC，写库时拒绝 naive datetime
@@ -384,7 +450,8 @@ ORM 里的 `cascade="all, delete-orphan"` 只用于**对象图内部一致性**
 以下是 Blueprint 5.2~5.4 规划、但**当前数据库里还不存在**的表。
 列在这里是为了说明字段设计的连贯性，不要误以为已经实现。
 
-> 阶段 2 的表已在迁移 0002 建好，从这个列表里移走了。
+> **阶段 2 的五张 AI 表已实现并接入业务**，字段级说明见上文
+> 「阶段 2 的五张 AI 表」一节。
 > **实际建了 5 张，比原计划多 3 张**：`ai_reviews`、`ai_review_decisions`、
 > `idempotency_keys`。原计划只写了 `ai_conversations` / `ai_messages`，
 > 但工作流 C 要求审查结果"独立存储且不写进 knowledge_versions 的任何现有行"、
@@ -427,6 +494,7 @@ card_id, state, step, stability, difficulty, due, last_review
 | `data/app.db-wal` | WAL 预写日志，**未落盘的数据在这里** |
 | `data/app.db-shm` | WAL 共享内存索引 |
 | `data/backups/` | 备份输出目录（阶段 5 实现） |
+| `data/env-backups/` | 设置页写 `.env` 前的自动备份，微秒时间戳命名，只留最近 10 份（D-056）。**内含密钥**，已被 Git 忽略 |
 
 数据库位置由 `PKOS_DATA_DIR` 决定，默认 `<项目根>/data`。
 测试通过设置 `PKOS_DATA_DIR` 指向 `tmp_path` 实现完全隔离。

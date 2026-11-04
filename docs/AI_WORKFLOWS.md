@@ -1,13 +1,15 @@
 # AI_WORKFLOWS —— AI 工作流设计
 
-> **状态：阶段 2 的工作流 A/B/C 已实现并有测试（后端到接口全通）；界面在阶段 2 第⑧步。**
+> **状态：阶段 2 完成（2026-11-04）。工作流 A/B/C 从界面到数据库全通，
+> 已对真实 DeepSeek 全链路联调；七条硬约束有测试锁定（第⑨步变异测试验证过）。**
 > 阶段 3（复习提示）和阶段 4（关联判断）仍在设计阶段，代码里没有对应调用。
 >
 > 实现落点：`backend/services/ai/`（Provider 协议、httpx 实现、假实现、提示词、工厂）、
 > `backend/services/ai_service.py`（编排与事务边界）、`backend/api/ai.py`（12 个端点）、
-> `backend/schemas/ai.py`（C3 校验边界）、`backend/services/settings_service.py`（写 `.env`）。
+> `backend/schemas/ai.py`（C3 校验边界）、`backend/services/settings_service.py`（写 `.env`）、
+> 前端 `frontend/src/lib/ai-api.ts`（SSE 流式）+ `frontend/src/components/ai/`（草稿确认、审查区）。
 > 已偏离本文件原设计的地方都记在 `DECISIONS.md`：D-044（失败五类）、D-045（JSON mode 默认关）、
-> D-047/D-048（AI 输出的校验松紧）、D-053~D-058（接口层与 `.env` 写入）。
+> D-047/D-048（AI 输出的校验松紧）、D-053~D-059（接口层、`.env` 写入与配置校验）。
 >
 > 本文件记录的是**约束和设计意图**，不是实现细节。
 > 继续实现时必须回来更新这个文件，并逐条对照下面的"硬约束"。
