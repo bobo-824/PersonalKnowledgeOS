@@ -12,25 +12,35 @@ import re
 
 import pytest
 
-from backend.db.models import REVIEW_CATEGORIES, SOURCE_KINDS
+from backend.db.models import RATINGS, REVIEW_CATEGORIES, SOURCE_KINDS
 from backend.domain.versioning import UNDERSTANDING_FIELDS
 from backend.services.ai.prompts import (
     EXTRACT_FIELDS,
     EXTRACT_SYSTEM_PROMPT,
     PROMPT_VERSION,
     PROMPTS,
+    RATING_SUGGESTION_FIELDS,
+    RATING_VALUES_IN_PROMPT,
     REVIEW_CATEGORIES_IN_PROMPT,
+    REVIEW_CHAT_SYSTEM_PROMPT,
+    REVIEW_RATE_SYSTEM_PROMPT,
     REVIEW_SYSTEM_PROMPT,
     STUDY_CHAT_SYSTEM_PROMPT,
     system_message,
 )
 
 
-def test_three_prompts_are_present_and_distinct() -> None:
-    assert set(PROMPTS) == {"study_chat", "extract", "review"}
+def test_five_prompts_are_present_and_distinct() -> None:
+    assert set(PROMPTS) == {
+        "study_chat",
+        "extract",
+        "review",
+        "review_chat",
+        "review_rate",
+    }
     texts = list(PROMPTS.values())
     assert all(text.strip() for text in texts)
-    assert len(set(texts)) == 3, "有两个工作流用了同一份提示词"
+    assert len(set(texts)) == len(PROMPTS), "有两个工作流用了同一份提示词"
 
 
 def test_system_message_wraps_the_right_text() -> None:
@@ -192,3 +202,36 @@ def test_no_prompt_invites_the_ai_to_rewrite_understanding() -> None:
     for name, text in PROMPTS.items():
         assert "修正用户的理解" not in text, name
         assert "帮他改写" not in text, name
+
+
+# -------------------------------------------------- 复习工作流（阶段 3 ⑤）
+
+
+def test_review_rate_prompt_names_every_suggestion_field() -> None:
+    for field in RATING_SUGGESTION_FIELDS:
+        assert field in REVIEW_RATE_SYSTEM_PROMPT, f"评级建议提示词漏了字段 {field}"
+
+
+def test_review_rate_rating_values_match_the_database_vocabulary() -> None:
+    """提示词里列的四级评级必须和 review_sessions.rating 的词表一致：
+    AI 建议了词表外的值，整份建议会在 C3 校验处报废。"""
+    assert set(RATING_VALUES_IN_PROMPT) == set(RATINGS)
+
+
+def test_review_rate_prompt_says_it_is_only_a_suggestion() -> None:
+    """C7：建议不是权威，最终评级由用户确认。这句话必须写进提示词，
+    否则模型会输出"你应该评 good"之类的命令式措辞去绑架用户。"""
+    assert "只是**建议**" in REVIEW_RATE_SYSTEM_PROMPT
+    assert "用户" in REVIEW_RATE_SYSTEM_PROMPT
+
+
+def test_review_chat_prompt_forbids_revealing_the_answer() -> None:
+    """验收硬项：AI 不提前泄露答案。泄露一次，这次复习就白做了。"""
+    assert "绝不提前泄露答案" in REVIEW_CHAT_SYSTEM_PROMPT
+    assert "一次只问一个问题" in REVIEW_CHAT_SYSTEM_PROMPT
+
+
+def test_review_chat_prompt_defers_grading_to_the_dedicated_call() -> None:
+    """对话过程不给评级：评级建议走 review_rate 的结构化调用，
+    两件事混在一起，建议就没法过 C3 校验。"""
+    assert "不要在这段对话里给评级" in REVIEW_CHAT_SYSTEM_PROMPT

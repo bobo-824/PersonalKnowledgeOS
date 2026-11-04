@@ -161,6 +161,13 @@ def create_knowledge(session: Session, data: KnowledgeCreate) -> Knowledge:
 
     # current_version 关系此时可以正常惰性加载，sync_index 要读它的正文
     sync_index(session, knowledge)
+
+    # D-060：知识一创建就自动进复习循环。函数内 import 而不是顶部：
+    # review_service 要复用本文件的 KnowledgeNotFound，顶部互引会循环。
+    from backend.services.review_service import ensure_schedule
+
+    ensure_schedule(session, knowledge)
+
     session.commit()
     # 日志只记 id，不记标题和正文（Blueprint 9.1：日志不得记录不必要的私人知识正文）
     logger.info("已创建知识单元 %s", knowledge.id)

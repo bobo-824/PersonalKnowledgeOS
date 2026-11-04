@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from backend.api.ai import router as ai_router
 from backend.api.health import router as health_router
 from backend.api.knowledge import router as knowledge_router
+from backend.api.review import router as review_router
 from backend.api.settings import router as settings_router
 from backend.config import ConfigFileError, Settings, get_settings
 from backend.db.models import (
@@ -40,6 +41,7 @@ from backend.services.ai_service import (
     ReviewNotFound,
 )
 from backend.services.knowledge_service import KnowledgeNotFound
+from backend.services.review_service import KnowledgeNotSchedulable, ReviewConversationNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=404)
 
+    @app.exception_handler(KnowledgeNotSchedulable)
+    async def _knowledge_not_schedulable(
+        _request: Request, exc: KnowledgeNotSchedulable
+    ) -> JSONResponse:
+        # 409 而不是 404：知识存在，只是已归档、现在不能复习。
+        # 和"不存在"分开，前端才能显示"恢复后再复习"而不是"找不到"。
+        return JSONResponse({"detail": str(exc)}, status_code=409)
+
     @app.exception_handler(ConfigFileError)
     async def _broken_config(_request: Request, exc: ConfigFileError) -> JSONResponse:
         """配置文件坏了确实是 500，但**默认 500 不带任何信息**。
@@ -121,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 必须在 _mount_frontend 之前：SPA 回落注册了 /{full_path:path} 这个
     # 通配路由，FastAPI 按注册顺序匹配，后注册的业务路由会被它抢走。
     app.include_router(knowledge_router)
+    app.include_router(review_router)
     _mount_frontend(app, settings)
     return app
 
@@ -149,7 +160,12 @@ def _register_ai_error_handlers(app: FastAPI) -> None:
 
     # 一个函数注册给三个异常类。不叠三层 @app.exception_handler 装饰器：
     # 那种写法依赖"装饰器返回被装饰函数"这个实现细节，而它并不是公开契约。
-    for not_found_error in (ConversationNotFound, ReviewNotFound, ReviewItemNotFound):
+    for not_found_error in (
+        ConversationNotFound,
+        ReviewNotFound,
+        ReviewItemNotFound,
+        ReviewConversationNotFound,
+    ):
         app.add_exception_handler(not_found_error, _ai_not_found)
 
     @app.exception_handler(EmptyDraftError)
@@ -207,6 +223,8 @@ def _not_found_message(exc: LookupError) -> str:
     """把三种"找不到"翻译成人能看懂的一句。id 不回显，前端本来就有它。"""
     if isinstance(exc, ConversationNotFound):
         return "找不到这个对话，它可能已经被清空了。"
+    if isinstance(exc, ReviewConversationNotFound):
+        return "找不到这场复习的对话，它可能已经被清空了。"
     if isinstance(exc, ReviewItemNotFound):
         return "这条审查里没有那个条目。"
     return "找不到这份审查记录。"
