@@ -413,12 +413,12 @@ tests/                            569 个测试（各文件收集数相加 == �
 ├── test_knowledge_service.py 服务层：版本号推导、N+1 查询次数（14）
 ├── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（141）
 ├── test_ai_provider.py       Provider 契约与五类失败（18，不建库不联网）
-├── test_ai_provider_http.py  httpx 真实实现（51，全部 MockTransport，不联网）
+├── test_ai_provider_http.py  httpx 真实实现（54，全部 MockTransport，不联网）
 ├── test_ai_prompts.py        提示词与词表/Schema 的交叉锁定（34，不建库不联网）
 ├── test_ai_schemas.py        C3 边界：草稿与五分类（35，不建库不联网）
 ├── test_ai_service.py        编排层：C1/C2/C3/C5 + 幂等 + 窄路径（31）
 ├── test_ai_api.py            AI 的 12 个端点 + SSE + 错误映射（64）
-└── test_settings_api.py      设置读写 + .env 写入规矩 + 密钥掩码（54）
+└── test_settings_api.py      设置读写 + .env 写入规矩 + 密钥掩码（59）
 ```
 
 分层是有意的：domain 的纯函数测试跑得最快也最容易定位，
@@ -673,7 +673,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9056 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 701 个（21 个测试文件）。
+后端 9107 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 705 个（21 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
@@ -700,7 +700,7 @@ def port_state(port, host="127.0.0.1"):
 | `backend/schemas/ai_api.py` | ✅ 完成（291 行）：AI 接口的请求/响应模型。和 `schemas/ai.py`（C3 边界）分文件，理由写在该文件顶部 |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | ✅ 完整（1135 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败、`parsing.py` 解析校验、`openai_compat.py` httpx 实现、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`、`factory.py` 按配置构造 + 连通性探测 |
+| `backend/services/ai/` | ✅ 完整（1302 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败 + `AiEndpointNotChatApi`（200 但返回的不是对话数据，如地址少 `/v1` 命中官网）、`parsing.py` 解析校验、`openai_compat.py` httpx 实现（流式会识别"整段没有 SSE data 行"并报错，不再静默回空）、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`、`factory.py` 按配置构造 + 连通性探测（探针必须真的拿到文字才报成功） |
 | **AI 集成** | ✅ **阶段 2 完成**（2026-11-04）：三个工作流从界面一路跑到数据库。前端 `frontend/src/components/ai/`（草稿确认面板、审查区）+ `frontend/src/lib/ai-{api,queries,schemas}.ts`（SSE 手工切帧、zod 契约逐字段对齐后端）。真机联调已对真实 DeepSeek 全链路跑通（含流式、提取、审查、采纳、配置写入即时生效）。AI 相关前端页面按路由 lazy 分包（主包现为 498 kB） |
 | `backend/domain/scheduler.py` | ✅ 完整：FSRS 接线纯函数（不 import sqlalchemy/fastapi）。`Scheduler(enable_fuzzing=False)`、Card ⇄ 排期行双向映射（`step` 必须持久化）、`derive_stats()` 从历史推算 reps/lapses/elapsed_days/scheduled_days |
 | `backend/services/review_service.py` | ✅ 完整：到期列表（归档/暂停/未到期三重过滤、不带理解正文）、`review_now`（**用户评级是唯一权威，C7**）、暂停/恢复（幂等）、历史。`create_knowledge` 挂钩 `ensure_schedule`——记一条知识自动进复习循环（D-060） |
