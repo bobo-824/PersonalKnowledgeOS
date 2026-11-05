@@ -154,6 +154,30 @@ def test_chat_prompt_keeps_it_to_one_question_at_a_time() -> None:
     assert "一次只问一个小问题" in STUDY_CHAT_SYSTEM_PROMPT
 
 
+def test_chat_prompt_scores_mastery_in_every_reply() -> None:
+    """用户要的是"看得见自己到哪儿了"：每轮回答末尾必须有十分制打分。"""
+    assert "掌握度：" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "/10" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "每次回答的**最后一行**" in STUDY_CHAT_SYSTEM_PROMPT
+
+
+def test_chat_prompt_stops_asking_once_mastery_passes_eight() -> None:
+    """⚠️ 反"无休止问答"的那一条：超过 8 分必须停止提问、把选择权交回用户。
+
+    没有这条，前面的"先问他自己怎么理解"会让对话永远绕不完——
+    用户已经讲通了还在被追问，这是本次修改的直接动因。
+    """
+    assert "超过 8 分" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "不要再抛新问题" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "把选择权交回给他" in STUDY_CHAT_SYSTEM_PROMPT
+
+
+def test_chat_prompt_scoring_is_not_flattery() -> None:
+    """打分必须能区分，否则等于没有：不许为了让他高兴而打高分。"""
+    assert "不要为了让他高兴而打高分" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "分数要真的能区分" in STUDY_CHAT_SYSTEM_PROMPT
+
+
 def test_extract_prompt_keeps_the_two_provenance_fields_apart() -> None:
     """C1 的数据前提：混在一起就再也分不清哪部分是谁的。"""
     assert "必须严格分开" in EXTRACT_SYSTEM_PROMPT
