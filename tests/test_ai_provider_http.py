@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from backend.services.ai.errors import (
     AiAuthRejected,
     AiBadRequest,
+    AiEndpointNotChatApi,
     AiError,
     AiSchemaInvalid,
     AiTimeout,
@@ -440,6 +441,47 @@ def test_stream_malformed_data_line_is_schema_invalid() -> None:
     )
     with pytest.raises(AiSchemaInvalid):
         list(provider.stream_chat([ChatMessage(role="user", content="甲")]))
+    provider.close()
+
+
+def test_stream_that_returns_html_page_is_not_silently_empty() -> None:
+    """实测踩到的坑：base_url 少写 /v1 时中转站返回官网 HTML，状态码还是 200。
+
+    旧行为是一条碎片都不产出、也不报错——用户看到「AI 回了个空」，
+    而真正该做的是去设置页补 /v1。现在必须抛专门的错误类。
+    """
+    html = "<!doctype html>\n<html lang=\"en\">\n<head><title>wolfai</title></head>\n"
+    provider = make_provider(
+        lambda request: httpx.Response(200, text=html, headers={"content-type": "text/html"})
+    )
+    with pytest.raises(AiEndpointNotChatApi) as excinfo:
+        list(provider.stream_chat([ChatMessage(role="user", content="甲")]))
+    assert "/v1" in excinfo.value.user_message
+    assert excinfo.value.error_kind == "schema_invalid"
+    provider.close()
+
+
+def test_endpoint_not_chat_api_message_never_contains_the_body() -> None:
+    """C6：官网 HTML 里可能带回显内容，detail 只许有 URL、状态码、content-type。"""
+    leaked = "网页正文里回显的那段私人内容"
+    provider = make_provider(
+        lambda request: httpx.Response(200, text=f"<html>{leaked}</html>")
+    )
+    with pytest.raises(AiEndpointNotChatApi) as excinfo:
+        list(provider.stream_chat([ChatMessage(role="user", content="甲")]))
+    assert leaked not in str(excinfo.value)
+    assert SENTINEL_KEY not in str(excinfo.value)
+    provider.close()
+
+
+def test_valid_sse_without_content_still_streams_normally() -> None:
+    """有 data 行但内容为空（部分推理模型）不该被误判成「地址不对」。"""
+    body = "\n\n".join(
+        [f'data: {json.dumps({"choices": [{"delta": {"content": ""}}]})}' for _ in range(2)]
+        + ["data: [DONE]"]
+    )
+    provider = make_provider(lambda request: httpx.Response(200, text=body + "\n\n"))
+    assert list(provider.stream_chat([ChatMessage(role="user", content="甲")])) == []
     provider.close()
 
 

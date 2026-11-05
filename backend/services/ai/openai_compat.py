@@ -37,6 +37,7 @@ from pydantic import BaseModel
 from backend.services.ai.errors import (
     AiAuthRejected,
     AiBadRequest,
+    AiEndpointNotChatApi,
     AiError,
     AiSchemaInvalid,
     AiTimeout,
@@ -149,13 +150,29 @@ class OpenAICompatProvider:
                     # 流式响应还没读 body，但状态码已经可用，够分类了。
                     # 这里不调 response.read()：错误正文可能含内容，一个字节都不取。
                     self._raise_for_status(response)
+                saw_data_line = False
                 for line in response.iter_lines():
+                    if line.strip().startswith(_SSE_DATA_PREFIX):
+                        saw_data_line = True
                     chunk = _sse_content(line)
                     if chunk is None:
                         continue
                     if chunk == _DONE:
                         return
                     yield chunk
+                if not saw_data_line:
+                    # 200 但一行 SSE data 都没有：命中的不是对话接口
+                    # （实测成因：base_url 少了 /v1，返回的是官网 HTML）。
+                    # 不报错的话调用方只会看到「AI 说了个空」，排查方向会被带偏。
+                    # detail 里只放 URL 和 content-type，不取响应体（C6）。
+                    raise AiEndpointNotChatApi(
+                        ("$stream",),
+                        detail=(
+                            f"{response.request.url} 返回 HTTP {response.status_code}，"
+                            f"但不是流式对话数据（content-type="
+                            f"{response.headers.get('content-type')!r}）"
+                        ),
+                    )
         except httpx.TimeoutException as exc:
             raise self._timeout_error(exc) from None
         except httpx.HTTPError as exc:

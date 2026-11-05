@@ -99,6 +99,25 @@ class AiSchemaInvalid(AiError):
         super().__init__(detail or "字段校验失败：" + ", ".join(self.invalid_fields))
 
 
+class AiEndpointNotChatApi(AiSchemaInvalid):
+    """返回 200，但根本不是对话接口该有的数据。
+
+    真实成因（实测踩过）：中转站的 API 地址少写了 `/v1`，
+    `POST https://xxx.top/chat/completions` 命中的是它的**官网页面**——
+    状态码 200、内容是 HTML。上层看不到任何错误码，流式一条碎片都挤不出来，
+    于是用户看到的是「AI 说了个空」，而 `AiSchemaInvalid` 那句
+    「建议换一个模型」会把人引向完全错误的方向。
+
+    `error_kind` 沿用 `schema_invalid`（写库词表不变），只把**面向用户的文案**
+    换成可执行的下一步。
+    """
+
+    user_message = (
+        "这个 API 地址没有返回对话数据（很可能返回的是网页）。"
+        "请到设置页在地址末尾补上 /v1，例如 https://你的中转站/v1。"
+    )
+
+
 class AiBadRequest(AiError):
     """服务端返回 4xx（401/403 除外）：它听懂了连接，但拒绝这个请求。
 
