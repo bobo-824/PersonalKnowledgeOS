@@ -94,9 +94,9 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-heading text-xl font-semibold">设置</h1>
+    <div className="flex flex-col gap-6 sm:gap-8">
+      <header className="flex flex-col gap-3">
+        <h1 className="page-title ">设置</h1>
         <p className="text-sm text-muted-foreground">
           AI 模型配置保存在项目根目录的 .env 文件里（已被 Git 忽略）。
           保存后立即生效，不需要重启服务。

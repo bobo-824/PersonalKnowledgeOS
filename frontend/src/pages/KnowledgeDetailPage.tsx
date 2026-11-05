@@ -217,7 +217,7 @@ export function KnowledgeDetailPage() {
   if (error) {
     const notFound = error instanceof ApiError && error.status === 404
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 sm:gap-8">
         <Button variant="outline" size="sm" className="min-h-11 self-start px-4" asChild>
           <Link to="/knowledge">
             <ArrowLeft aria-hidden="true" />
@@ -257,7 +257,7 @@ export function KnowledgeDetailPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 sm:gap-8">
       <Button variant="ghost" size="sm" className="min-h-9 -ml-2 self-start" asChild>
         <Link to="/knowledge">
           <ArrowLeft aria-hidden="true" />
@@ -269,7 +269,7 @@ export function KnowledgeDetailPage() {
 
       <header className="flex flex-col gap-3">
         <div className="flex flex-col gap-2">
-          <h1 className="font-heading text-xl leading-snug font-semibold break-words">
+          <h1 className="page-title break-words">
             {knowledge.title}
           </h1>
           <div className="flex flex-wrap items-center gap-1.5">

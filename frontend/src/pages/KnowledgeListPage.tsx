@@ -122,10 +122,10 @@ export function KnowledgeListPage() {
   const error = activeQuery.error
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 sm:gap-8">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-heading text-xl font-semibold">知识库</h1>
+          <h1 className="page-title ">知识库</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {loading ? "正在读取…" : `共 ${total} 条`}
           </p>
