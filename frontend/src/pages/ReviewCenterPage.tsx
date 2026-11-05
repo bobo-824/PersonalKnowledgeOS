@@ -116,8 +116,8 @@ function OutcomeCard({ outcome, onBack }: { outcome: ReviewOutcome; onBack: () =
 
 function PageHeader({ count }: { count: number | null }) {
   return (
-    <header className="flex flex-col gap-1">
-      <h1 className="font-heading text-xl font-semibold">复习中心</h1>
+    <header className="flex flex-col gap-3">
+      <h1 className="page-title ">复习中心</h1>
       <p className="text-sm text-muted-foreground">
         {count === null
           ? "到期就会出现在下面的列表里，凭记忆回答，再诚实评级。"
@@ -306,7 +306,7 @@ export function ReviewCenterPage() {
   // ===== 结果卡 =====
   if (active && outcome) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 sm:gap-8">
         <PageHeader count={due?.count ?? null} />
         <p className="text-sm font-medium break-words">{active.title}</p>
         <OutcomeCard outcome={outcome} onBack={reset} />
@@ -317,7 +317,7 @@ export function ReviewCenterPage() {
   // ===== 到期列表 =====
   if (!active) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 sm:gap-8">
         <PageHeader count={due?.count ?? null} />
 
         <ApiErrorNotice error={error} />
@@ -380,7 +380,7 @@ export function ReviewCenterPage() {
   )
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 sm:gap-8">
       <PageHeader count={null} />
 
       <div className="flex flex-col gap-1">
@@ -388,7 +388,7 @@ export function ReviewCenterPage() {
           <ArrowLeft aria-hidden="true" />
           回到期列表
         </Button>
-        <h1 className="font-heading text-lg leading-snug font-semibold break-words">
+        <h1 className="page-title break-words">
           {active.title}
         </h1>
       </div>

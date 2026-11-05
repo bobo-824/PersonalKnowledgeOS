@@ -14,7 +14,7 @@ import type { ReactNode } from "react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useDueCount } from "@/lib/review-queries"
 
 type HealthResponse = {
@@ -50,7 +50,6 @@ function DueReviewCard() {
           <BrainCircuit aria-hidden="true" className="size-5 text-primary" />
           今日复习
         </CardTitle>
-        <CardDescription>到期的知识会自动排队，评完即清。</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
         {isPending && (
@@ -64,7 +63,7 @@ function DueReviewCard() {
         )}
         {data && count === 0 && (
           <p className="text-sm text-muted-foreground">
-            现在没有到期的知识。该干嘛干嘛，到期了这里会提醒。
+            暂无待复习内容。
           </p>
         )}
         {data && count > 0 && (
@@ -95,20 +94,20 @@ export function HomePage() {
   })
 
   return (
-    <div className="flex flex-col gap-4">
-      <DueReviewCard />
-
+    <div className="flex flex-col gap-6 sm:gap-8">
       <div className="flex items-center gap-3">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Activity aria-hidden="true" className="size-5" />
         </span>
         <div className="min-w-0">
-          <h1 className="font-heading text-xl font-semibold">首页</h1>
+          <h1 className="page-title ">首页</h1>
           <p className="text-sm text-muted-foreground">
-            你的知识库正在本机运行，下面是运行状态
+            从今天的复习开始。
           </p>
         </div>
       </div>
+
+      <DueReviewCard />
 
       <Card>
         <CardHeader>
@@ -122,9 +121,6 @@ export function HomePage() {
               </Badge>
             )}
           </CardTitle>
-          <CardDescription>
-            直接请求本机健康检查接口，不是模拟数据。
-          </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {isPending && (
@@ -152,7 +148,9 @@ export function HomePage() {
 
           {data && (
             <>
-              <div className="flex flex-col">
+              <details className="group">
+                <summary className="cursor-pointer rounded-lg py-2 text-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring">查看运行详情</summary>
+                <div className="mt-4 flex flex-col gap-3">
                 <Row
                   label="后端数据库"
                   value={
@@ -194,7 +192,8 @@ export function HomePage() {
                     )
                   }
                 />
-              </div>
+                </div>
+              </details>
 
               {data.database.error && (
                 <p className="rounded-lg bg-destructive/10 p-3 text-xs break-all text-destructive">

@@ -49,30 +49,30 @@
 }
 
 :root {
-    --background: oklch(1 0 0);
-    --foreground: oklch(0.145 0 0);
+    --background: #f7f8fb;
+    --foreground: #202331;
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
-    --primary: oklch(0.205 0 0);
+    --primary: #5553ce;
     --primary-foreground: oklch(0.985 0 0);
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
-    --accent: oklch(0.97 0 0);
+    --muted-foreground: #686d80;
+    --accent: #eeedfa;
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
-    --border: oklch(0.922 0 0);
-    --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --border: #e3e5ed;
+    --input: #dcdfe9;
+    --ring: #7976df;
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
     --chart-4: oklch(0.371 0 0);
     --chart-5: oklch(0.269 0 0);
-    --radius: 0.625rem;
+    --radius: 1rem;
     --sidebar: oklch(0.985 0 0);
     --sidebar-foreground: oklch(0.145 0 0);
     --sidebar-primary: oklch(0.205 0 0);
@@ -136,4 +136,71 @@
     -webkit-appearance: none;
     appearance: none;
     }
+}
+/* Shared soft surfaces, inspired by a quiet desktop workspace. */
+@layer base {
+  body { -webkit-font-smoothing: antialiased; }
+  ::selection { background: var(--secondary); color: var(--foreground); }
+}
+[data-slot="card"] {
+  border-radius: 1.125rem;
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgb(27 32 61 / 0.035);
+}
+[data-slot="button"] { border-radius: 0.75rem; }
+[data-slot="input"] { border-radius: 0.875rem; background-color: var(--card); }
+[data-slot="textarea"] { border-radius: 1.25rem; }
+
+/* Bold, compact headings inspired by the supplied reference. */
+.page-title {
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  font-size: clamp(2rem, 1.6rem + 1vw, 2.75rem);
+  font-weight: 900;
+  line-height: 1.25;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.workspace-sidebar {
+  --sidebar: #eef0f6;
+  --foreground: #292e40;
+  --muted-foreground: #626a80;
+  --muted: #e3e6f0;
+  --primary: #5553ce;
+  --border: #dce0eb;
+  color: var(--foreground);
+}
+.workspace-sidebar nav a { border-radius: 0.75rem; }
+.workspace-sidebar .nav-selected {
+  background: #e1e2f5;
+  box-shadow: inset 3px 0 #7773d5;
+  color: #45429c;
+}
+.brand-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d0d1e7;
+  border-radius: 10px;
+  color: #5553ad;
+  background: #e3e3f4;
+}
+.workspace-shell main { background-image: radial-gradient(ellipse at top right, rgb(106 99 214 / 0.045), transparent 60%); }
+.workspace-shell main > div > div > header { padding-bottom: 0.5rem; }
+[data-slot="card-title"] { letter-spacing: -0.015em; }
+[data-slot="select"] { background-color: var(--card); }
+
+/* A modest increase for supporting text, including portaled menus. */
+@theme {
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.6;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.65;
+}
+.workspace-sidebar nav a { font-size: 1rem; }
+@media (prefers-reduced-motion: no-preference) {
+  [data-slot="button"], .workspace-sidebar nav a { transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
 }

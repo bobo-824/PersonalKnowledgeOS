@@ -7,6 +7,7 @@ import { DraftConfirmPanel } from "@/components/ai/DraftConfirmPanel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
+import { Select } from "@/components/ui/select"
 import {
   extractDraft,
   streamChatMessage,
@@ -153,8 +154,8 @@ export function AiStudyRoomPage() {
 
   if (config && !config.configured) {
     return (
-      <div className="flex flex-col gap-4">
-        <h1 className="font-heading text-xl font-semibold">AI 学习室</h1>
+      <div className="flex flex-col gap-6 sm:gap-8">
+        <h1 className="page-title ">AI 学习室</h1>
         <EmptyState
           icon={BookPlus}
           title="还没有配置 AI 模型"
@@ -173,12 +174,11 @@ export function AiStudyRoomPage() {
     conversations?.find((item) => item.id === activeId)?.title ?? "新对话"
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-heading text-xl font-semibold">AI 学习室</h1>
+    <div className="flex flex-col gap-6 sm:gap-8">
+      <header className="flex flex-col gap-3">
+        <h1 className="page-title ">AI 学习室</h1>
         <p className="text-sm text-muted-foreground">
-          随便聊你在学的东西。AI 会先听你的理解，聊出内容后可以一键沉淀成知识草稿——
-          草稿要你确认才会保存。
+          和 AI 梳理理解，确认后保存为知识。
         </p>
       </header>
 
@@ -186,12 +186,13 @@ export function AiStudyRoomPage() {
       <ApiErrorNotice error={clearHistory.error} />
       <ApiErrorNotice error={createConversation.error} />
 
-      {/* 会话切换：移动端用原生 select（好按、好滚动），桌面端同款够用 */}
+      {/* 会话切换：复用统一的圆角下拉菜单 */}
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor="conversation-picker">
           选择历史对话
         </label>
-        <select
+        <div className="min-w-0 flex-1">
+        <Select
           id="conversation-picker"
           value={activeId ?? ""}
           onChange={(event) => {
@@ -199,7 +200,7 @@ export function AiStudyRoomPage() {
             setDraft(null)
             setStreamError(null)
           }}
-          className="h-11 min-w-0 flex-1 rounded-lg border border-input bg-transparent px-3 text-base md:text-sm"
+          className="min-w-0 [&>span:first-child]:truncate"
         >
           <option value="">＋ 新对话</option>
           {conversations?.map((item) => (
@@ -207,7 +208,8 @@ export function AiStudyRoomPage() {
               {item.title}
             </option>
           ))}
-        </select>
+        </Select>
+        </div>
         {conversations && conversations.length > 0 && (
           <Button
             variant="outline"

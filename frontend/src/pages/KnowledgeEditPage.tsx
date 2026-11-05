@@ -43,7 +43,7 @@ export function KnowledgeEditPage() {
   if (!isCreate && error) {
     const notFound = error instanceof ApiError && error.status === 404
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6 sm:gap-8">
         <Button variant="outline" size="sm" className="min-h-11 self-start px-4" asChild>
           <Link to="/knowledge">
             <ArrowLeft aria-hidden="true" />
@@ -68,7 +68,7 @@ export function KnowledgeEditPage() {
   if (!isCreate && !knowledge) return null
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6 sm:gap-8">
       <Button variant="ghost" size="sm" className="min-h-9 -ml-2 self-start" asChild>
         <Link to={isCreate ? "/knowledge" : `/knowledge/${knowledgeId}`}>
           <ArrowLeft aria-hidden="true" />
@@ -81,7 +81,7 @@ export function KnowledgeEditPage() {
           <NotebookPen aria-hidden="true" className="size-5" />
         </span>
         <div className="min-w-0">
-          <h1 className="font-heading text-xl leading-snug font-semibold break-words">
+          <h1 className="page-title break-words">
             {isCreate ? "记一条新知识" : `编辑：${knowledge?.title ?? ""}`}
           </h1>
           <p className="mt-0.5 text-sm text-muted-foreground">

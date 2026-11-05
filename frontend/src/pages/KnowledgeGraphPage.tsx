@@ -387,9 +387,9 @@ function CandidatesCard() {
 
 export function KnowledgeGraphPage() {
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1">
-        <h1 className="font-heading text-xl font-semibold">知识图谱</h1>
+    <div className="flex flex-col gap-6 sm:gap-8">
+      <header className="flex flex-col gap-3">
+        <h1 className="page-title ">知识图谱</h1>
         <p className="text-sm text-muted-foreground">
           只有你亲手确认过的关系才会出现在图谱里（AI 判断的候选永远先等你审核）。
         </p>
