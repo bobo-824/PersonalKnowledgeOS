@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 
 from backend.config import Settings
+from backend.db.models import ERROR_KIND_SCHEMA_INVALID
 from backend.services.ai.errors import AiError
 from backend.services.ai.openai_compat import OpenAICompatProvider
 from backend.services.ai.provider import CHAT_ROLE_USER, ChatMessage
@@ -128,8 +129,10 @@ def probe_connection(provider: OpenAICompatProvider) -> ProbeResult:
     """
     started = time.perf_counter()
     stream = provider.stream_chat([ChatMessage(role=CHAT_ROLE_USER, content=_PROBE_PROMPT)])
+    got_chunk = False
     try:
         for _chunk in stream:
+            got_chunk = True
             break
     except AiError as exc:
         # exc.user_message 是固定文案，不含 key、不含响应体（C6）
@@ -145,6 +148,18 @@ def probe_connection(provider: OpenAICompatProvider) -> ProbeResult:
         # `with client.stream(...) as response`，靠"生成器被回收"来释放响应体
         # 在 CPython 上碰巧可行，但那是在赌实现而不是在描述行为。
         stream.close()
+
+    if not got_chunk:
+        # 链路通、鉴权过、状态码 200，但一个字都没吐——这正是
+        # 「测试连接说成功，聊天却回空」的错位来源。探针的结论必须
+        # 建立在真的拿到文本之上，而不是「没抛异常」之上。
+        return ProbeResult(
+            ok=False,
+            model=provider.model_id,
+            duration_ms=_elapsed_ms(started),
+            error_kind=ERROR_KIND_SCHEMA_INVALID,
+            message=f"{provider.model_id} 连接正常但没有返回任何文字，请换个模型或检查中转站的配置。",
+        )
 
     return ProbeResult(
         ok=True,

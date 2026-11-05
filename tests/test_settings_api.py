@@ -213,6 +213,22 @@ def test_probe_connection_reports_the_failure_kind(ai_env: Path) -> None:
     assert result.message == AiAuthRejected.user_message
 
 
+def test_probe_connection_fails_when_no_text_comes_back(ai_env: Path) -> None:
+    """⚠️ 「测试连接说成功、聊天却回空」的错位来源。
+
+    探针的结论必须建立在**真的拿到文字**之上，而不是「没抛异常」之上：
+    端点返回 200 但一个碎片都没有时，旧代码会报 ok=True。
+    """
+    provider = StubProvider(chunks=[])
+
+    result = probe_connection(provider)
+
+    assert result.ok is False
+    assert result.error_kind == "schema_invalid"
+    assert "没有返回任何文字" in result.message
+    assert provider.closed is True
+
+
 # ================================================================ 行级替换
 
 
