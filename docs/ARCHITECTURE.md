@@ -403,10 +403,10 @@ queries: {
 ## 五、测试架构
 
 ```
-tests/                            569 个测试（各文件收集数相加 == 全量运行数）
+tests/                            743 个测试（各文件收集数相加 == 全量运行数）
 ├── conftest.py               夹具（全部走真实迁移 + 临时目录）
 ├── test_health.py            /api/health 的语义与隐私（5）
-├── test_migrations.py        迁移结构与数据完整性保证（23）
+├── test_migrations.py        迁移结构与数据完整性保证（29）
 ├── test_versioning.py        domain 层版本规则的纯函数测试（17）
 ├── test_schemas.py           Pydantic 校验与 422 报文（50）
 ├── test_search_index.py      服务层：转义、索引一致性、索引修复（32）
@@ -415,14 +415,27 @@ tests/                            569 个测试（各文件收集数相加 == �
 ├── test_ai_provider.py       Provider 契约与五类失败（18，不建库不联网）
 ├── test_ai_provider_http.py  httpx 真实实现（54，全部 MockTransport，不联网）
 ├── test_ai_prompts.py        提示词与词表/Schema 的交叉锁定（52，不建库不联网）
-├── test_ai_schemas.py        C3 边界：草稿与五分类（35，不建库不联网）
+├── test_ai_schemas.py        C3 边界：草稿与五分类（43，不建库不联网）
 ├── test_ai_service.py        编排层：C1/C2/C3/C5 + 幂等 + 窄路径（31）
-├── test_ai_api.py            AI 的 12 个端点 + SSE + 错误映射（64）
-└── test_settings_api.py      设置读写 + .env 写入规矩 + 密钥掩码（59）
+├── test_ai_api.py            AI 的 12 个端点 + SSE + 错误映射（65）
+├── test_settings_api.py      设置读写 + .env 写入规矩 + 密钥掩码（59）
+├── test_scheduler.py         FSRS 接线的纯函数测试（9，不建库不联网）
+├── test_review_service.py    复习业务：入队、暂停、评级权威（14）
+├── test_review_chat.py       对话式复习的收口与评级建议（14）
+├── test_review_api.py        复习端点（20）
+├── test_relation_service.py  关系服务：审核与防骚扰（19）
+├── test_relation_api.py      关系端点（9）
+├── test_backup_export.py     备份与导出（13）
+└── test_desktop_launcher.py  桌面启动器：纯逻辑与编排，全替身不真起服务（35）
 ```
 
 分层是有意的：domain 的纯函数测试跑得最快也最容易定位，
 API 测试只管"穿过整个栈之后行为对不对"，不重复测 domain 的分支。
+
+跑全套的一个环境坑：如果 shell 的 `NO_PROXY` 里带方括号 IPv6（如 `[::1]`），
+httpx 构造 `Client` 时会把它当代理挂载解析并抛 `InvalidURL`，
+表现为 4 个 AI 相关测试红、其余全绿。这与代码无关：`env -u NO_PROXY uv run pytest`
+即恢复全绿。Windows 用户/系统环境默认没有这个变量，桌面启动的应用不受影响。
 
 ### 用变异测试验证测试本身
 
@@ -557,11 +570,30 @@ pytest 默认只把 `tests/` 加进 `sys.path`，`import backend` 会直接
 
 ```
 scripts/
-├── doctor.py     环境自检（只用标准库）
-└── setup.py      一键安装（6 步，幂等）
-start.ps1         Windows PowerShell 启动器
-start.sh          Git Bash / macOS / Linux 启动器
+├── doctor.py            环境自检（只用标准库）
+├── setup.py             一键安装（6 步，幂等）
+└── install-shortcut.ps1 桌面快捷方式（指向 .venv 的 pythonw + desktop_launcher.py）
+desktop_launcher.py      桌面入口：无黑窗起服务 + 独立应用窗口 + 关窗即停
+start.ps1                Windows PowerShell 启动器
+start.sh                 Git Bash / macOS / Linux 启动器
 ```
+
+### `desktop_launcher.py`：双击图标之后发生什么
+
+用 `.venv\Scripts\pythonw.exe` 跑，所以全程没有控制台窗口。顺序是：
+读 `.env` 的 `PKOS_HOST/PKOS_PORT` → 检查依赖与前端构建是否就位 → 拿单实例锁 →
+`alembic upgrade head` → 起 uvicorn（输出进 `logs/server.log`）→
+轮询 `/api/health` 直到就绪 → 用 Chrome/Edge 的 `--app` 模式开一个独立窗口 →
+`window.wait()` → 关窗即停服务。
+
+两个不显然的选择：窗口必须配一份**独立浏览器配置**，否则启动会被转交给
+已在跑的日常浏览器、Popen 立刻返回，就没有进程可以等"用户关窗了"；
+就绪判定看 `/api/health` 的 JSON 而不是端口通不通，否则端口上蹲着别的程序时
+会误判成"服务已经在跑"，关窗也不会去停它。
+
+三条安全性质都有真机实测：运行中再点一次只开窗口不抢服务；复用别人起的服务时
+关窗不去停它；自己起的服务关窗后连 venv 跳板进程派生的子进程一起退干净。
+失败一律弹消息框说人话，细节进 `logs/launcher.log`。
 
 ### `doctor.py`：12 项检查，只用标准库
 
@@ -673,7 +705,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9126 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 708 个（21 个测试文件）。
+后端 9126 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 743 个（22 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
