@@ -15,11 +15,13 @@ import json
 import sqlite3
 from datetime import datetime
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from backend.config import get_settings
 from backend.schemas.knowledge import KnowledgeCreate
+from backend.services import backup_service
 from backend.services.backup_service import (
     KEEP_COUNT,
     BackupSourceMissing,
@@ -82,8 +84,18 @@ def test_backup_prunes_to_keep_count(db_session: Session) -> None:
     assert any(path.stat().st_size > 0 for path in remaining)
 
 
-def test_backup_same_second_collision_gets_suffix(db_session: Session) -> None:
+def test_backup_same_second_collision_gets_suffix(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """启动自动备份和手动按钮贴得很近：同秒两份都留存，-1 是新的。"""
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 11, 11, 12, 0, 0, tzinfo=tz)
+
+    # 不冻时间的话，两次调用跨过秒边界就没有撞名，测试会随机器负载偶发红。
+    monkeypatch.setattr(backup_service, "datetime", FrozenDatetime)
     first = create_backup(get_settings())
     second = create_backup(get_settings())
     assert first.filename != second.filename
