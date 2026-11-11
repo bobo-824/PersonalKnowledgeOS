@@ -89,7 +89,29 @@ python scripts\setup.py
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-shortcut.ps1
 ```
 
-桌面上会出现绿色的「个人知识库」图标，**双击即可启动**：服务没在跑就自动拉起并打开页面；已经在跑就直接打开页面（不会起第二个服务）。想停止应用，关掉任务栏上那个最小化的黑色窗口就行。
+桌面上会出现「个人知识库」图标，**双击即可启动**：后台自动起服务（全程没有黑窗口），然后弹出一个**独立的应用窗口**——没有地址栏和标签栏，看起来就是一个单独的软件。**关掉这个窗口，后台服务自动停止**，不留进程。
+
+| 情况 | 结果 |
+|---|---|
+| 双击（服务没在跑） | 先把数据库结构升到最新，再起服务，几秒后弹出应用窗口 |
+| 服务已经在跑时再双击 | 不会起第二个服务，只把窗口叫出来 |
+| 关掉应用窗口 | 后台服务自动停止 |
+| 服务是你自己用 `.\start.ps1` 起的 | 双击只开窗口；关窗口**不会**去停它——要停就回原来的终端按 Ctrl+C |
+| 服务起不来（端口被占、`.env` 填错等） | 弹一个窗口把原因和解决办法写清楚，细节记在 `logs\server.log` |
+| 电脑上没有 Chrome 也没有 Edge | 退回默认浏览器的普通标签页，并提示这种方式没法自动停服务 |
+
+细节与排查：
+
+- 应用窗口用的是浏览器的一份**独立配置**（`%LOCALAPPDATA%\pkos-desktop-app\browser-profile`），不碰你平时上网的书签、扩展和登录状态。删掉它等于重置这个窗口的浏览器设置（窗口大小之类）；你的知识数据不在那里，在项目 `data\` 目录里。
+- 运行记录在 `logs\launcher.log`（每次点击、什么时候起的服务、什么时候关的窗口）和 `logs\server.log`（服务自己的输出）。两个文件写大了会自动截尾，不会越攒越多。
+- 万一服务成了"孤儿"（比如强行结束了启动器，窗口早没了它还在跑），在 PowerShell 里运行这一行停掉它：
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*uvicorn*backend.main:app*' } | ForEach-Object { Stop-Process -Id $_.ProcessId }
+```
+
+- 换端口还是改 `.env` 里的 `PKOS_PORT`：启动器和服务读的是同一份文件。
+- 这一节只管 Windows。macOS / Linux 继续用下面的 `./start.sh`。
 
 ### PowerShell（推荐）
 
