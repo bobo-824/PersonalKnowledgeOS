@@ -46,18 +46,43 @@ def make_knowledge(session: Session, title: str = "梯度下降") -> str:
     ).id
 
 
+def make_due(session: Session, title: str = "梯度下降") -> str:
+    """造一条"现在就该复习"的知识。
+
+    入库后首复排在明天（D-074），所以到期场景要手动把 due 拨到过去——
+    这也顺带证明了新排期不会把刚记下的知识立刻塞进到期列表。
+    """
+    knowledge_id = make_knowledge(session, title)
+    schedule = get_schedule(session, knowledge_id)
+    schedule.due = utcnow() - timedelta(hours=1)
+    session.commit()
+    return knowledge_id
+
+
 # ================================================================ 自动进循环
 
 
 def test_create_knowledge_automatically_enrolls(db_session: Session) -> None:
     """D-060 的核心：记一条知识，不用做任何设置，排期表里就有它。"""
+    before = utcnow()
     knowledge_id = make_knowledge(db_session)
+    after = utcnow()
 
     schedule = get_schedule(db_session, knowledge_id)
     assert schedule.state == "learning"
     assert schedule.step == 0
     assert schedule.status == "active"
-    assert schedule.due <= utcnow(), "新知识立刻到期，第一次复习就是现在"
+    assert before + timedelta(days=1) <= schedule.due <= after + timedelta(days=1), (
+        "第一次复习在入库后第 1 天，不是刚压缩完就考（D-074）"
+    )
+
+
+def test_new_knowledge_is_not_due_yet(db_session: Session) -> None:
+    """刚记完一条知识，首页的"今天还剩几条"不该立刻 +1。"""
+    make_knowledge(db_session)
+
+    assert due_list(db_session) == []
+    assert due_count(db_session) == 0
 
 
 def test_ensure_schedule_is_idempotent(db_session: Session) -> None:
@@ -72,7 +97,7 @@ def test_ensure_schedule_is_idempotent(db_session: Session) -> None:
 
 
 def test_due_list_includes_due_and_excludes_the_rest(db_session: Session) -> None:
-    due_id = make_knowledge(db_session, title="该复习的")
+    due_id = make_due(db_session, title="该复习的")
 
     # 未到期的：手动把 due 推到未来
     future_id = make_knowledge(db_session, title="还没到期的")
@@ -81,11 +106,11 @@ def test_due_list_includes_due_and_excludes_the_rest(db_session: Session) -> Non
     db_session.commit()
 
     # 暂停的：due 在过去但 status=suspended
-    suspended_id = make_knowledge(db_session, title="暂停的")
+    suspended_id = make_due(db_session, title="暂停的")
     set_suspended(db_session, suspended_id, suspended=True)
 
     # 归档的：知识不在用
-    archived_id = make_knowledge(db_session, title="归档的")
+    archived_id = make_due(db_session, title="归档的")
     archive_knowledge(db_session, archived_id)
 
     ids = [item.knowledge_id for item in due_list(db_session)]
@@ -97,7 +122,7 @@ def test_due_list_includes_due_and_excludes_the_rest(db_session: Session) -> Non
 
 def test_due_list_carries_title_but_not_the_answer(db_session: Session) -> None:
     """列表阶段只给标题。把理解正文也带出来，用户瞄一眼就把"回忆"跳过去了。"""
-    make_knowledge(db_session, title="梯度下降")
+    make_due(db_session, title="梯度下降")
 
     items = due_list(db_session)
     assert len(items) == 1
@@ -108,13 +133,13 @@ def test_due_list_carries_title_but_not_the_answer(db_session: Session) -> None:
 
 
 def test_due_count_matches_due_list(db_session: Session) -> None:
-    make_knowledge(db_session)
-    make_knowledge(db_session, title="第二条")
+    make_due(db_session)
+    make_due(db_session, title="第二条")
 
     # 暂停和归档的同样不许进条数——首页那个数字和列表必须是同一套过滤条件
-    suspended_id = make_knowledge(db_session, title="暂停的")
+    suspended_id = make_due(db_session, title="暂停的")
     set_suspended(db_session, suspended_id, suspended=True)
-    archived_id = make_knowledge(db_session, title="归档的")
+    archived_id = make_due(db_session, title="归档的")
     archive_knowledge(db_session, archived_id)
 
     assert due_count(db_session) == len(due_list(db_session)) == 2
@@ -132,6 +157,9 @@ def test_review_now_writes_session_and_advances_schedule(db_session: Session) ->
 
     assert outcome.rating == "good"
     assert outcome.due > old_due
+    assert outcome.due >= utcnow() + timedelta(days=1), (
+        "评完 good 之后下次复习至少隔一天，不是十分钟后（D-074）"
+    )
     after = get_schedule(db_session, knowledge_id)
     assert after.last_review is not None
 
@@ -204,7 +232,7 @@ def test_stats_come_out_of_the_history(db_session: Session) -> None:
 
 
 def test_suspend_is_idempotent_and_resume_keeps_overdue_due(db_session: Session) -> None:
-    knowledge_id = make_knowledge(db_session)
+    knowledge_id = make_due(db_session)
     set_suspended(db_session, knowledge_id, suspended=True)
     set_suspended(db_session, knowledge_id, suspended=True)  # 重复暂停不炸
 

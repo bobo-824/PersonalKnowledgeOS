@@ -70,7 +70,7 @@ class ReviewSchedule(Base):
     # 新卡片（还没复习过）这两个字段是 NULL，和 fsrs Card 一致
     stability: Mapped[float | None] = mapped_column(Float)
     difficulty: Mapped[float | None] = mapped_column(Float)
-    # 下次该复习的时间。新卡片建行时 = 创建时刻（立刻到期）
+    # 下次该复习的时间。新卡片建行时 = 创建时刻 + 1 天（D-074）
     due: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
     last_review: Mapped[datetime | None] = mapped_column(UTCDateTime)
     status: Mapped[str] = mapped_column(

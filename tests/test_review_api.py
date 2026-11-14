@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -14,9 +15,11 @@ from fastapi.testclient import TestClient
 
 from backend.api.deps import get_provider
 from backend.config import get_settings
+from backend.db.base import utcnow
 from backend.db.models import RATINGS
-from backend.db.session import dispose_engine, init_engine
+from backend.db.session import dispose_engine, init_engine, open_session
 from backend.main import AI_ERROR_STATUS, create_app
+from backend.services import review_service
 from backend.services.ai.errors import AiTimeout
 from backend.services.ai.fake import FakeProvider
 from backend.schemas.review_api import (
@@ -50,12 +53,45 @@ def make_knowledge(client: TestClient, title: str = "梯度下降") -> str:
     return response.json()["id"]
 
 
+def make_due(client: TestClient, title: str = "梯度下降") -> str:
+    """造一条"现在就该复习"的知识。
+
+    入库后首复排在明天（D-074），到期场景要手动把 due 拨到过去。
+    HTTP 层没有注入时间的入口，所以直接开一个会话改排期行。
+    """
+    knowledge_id = make_knowledge(client, title)
+    with open_session() as session:
+        schedule = review_service.get_schedule(session, knowledge_id)
+        schedule.due = utcnow() - timedelta(hours=1)
+        session.commit()
+    return knowledge_id
+
+
 # ================================================================ 到期
 
 
-def test_new_knowledge_appears_in_due_list(client: TestClient) -> None:
-    """D-060 的 HTTP 证据：记一条知识，到期列表立刻有它，不带理解正文。"""
+def test_new_knowledge_is_enrolled_but_not_due_until_tomorrow(
+    client: TestClient,
+) -> None:
+    """D-060 + D-074 的 HTTP 证据：记一条知识自动有排期，但首复在明天——
+    刚压缩完就要求复习，考的是短时记忆，不是理解。"""
     knowledge_id = make_knowledge(client, title="注意力机制")
+
+    assert client.get("/api/review/due").json()["count"] == 0
+    assert client.get("/api/review/due/count").json()["count"] == 0
+
+    schedule = client.get(f"/api/review/{knowledge_id}/schedule").json()
+    assert schedule["state"] == "learning"
+    assert schedule["status"] == "active"
+    due = datetime.fromisoformat(schedule["due"])
+    assert timedelta(hours=23) <= due - utcnow() <= timedelta(days=1, minutes=1)
+
+
+def test_due_knowledge_appears_in_due_list_without_the_answer(
+    client: TestClient,
+) -> None:
+    """到期列表有它，且不带理解正文。"""
+    knowledge_id = make_due(client, title="注意力机制")
 
     body = client.get("/api/review/due").json()
     assert body["count"] == 1
@@ -118,14 +154,14 @@ def test_rate_suggested_rating_is_stored_but_never_read_by_scheduler(
         },
     ).json()
 
-    # HTTP 层没法注入 now，两次请求差几毫秒，截断到秒比较。
-    # 同秒内 due 必须相同的精确证据在 test_review_service 的 C7 测试里（固定 now）。
-    from datetime import datetime
+    # HTTP 层没法注入 now，两次请求差几毫秒。比较完整时间戳、容差 1 秒：
+    # 建议若真改了排期，差的是分钟/天级，1 秒容差抓得住；又不像"截断到秒"
+    # 那样在两次请求恰好跨秒时假失败。同秒精确相等的证据在 test_review_service
+    # 的 C7 测试里（固定 now）。
+    def due_dt(payload: dict) -> datetime:
+        return datetime.fromisoformat(payload["due"])
 
-    def due_second(payload: dict) -> str:
-        return datetime.fromisoformat(payload["due"]).replace(microsecond=0).isoformat()
-
-    assert due_second(plain) == due_second(with_suggestion)
+    assert abs(due_dt(plain) - due_dt(with_suggestion)) <= timedelta(seconds=1)
 
     history = client.get(f"/api/review/{second_id}/history").json()
     assert history[0]["suggested_rating"] == "easy"
@@ -153,7 +189,7 @@ def test_rate_unknown_knowledge_is_404_and_archived_is_409(client: TestClient) -
 
 
 def test_suspension_roundtrip(client: TestClient) -> None:
-    knowledge_id = make_knowledge(client)
+    knowledge_id = make_due(client)
 
     response = client.put(
         f"/api/review/{knowledge_id}/suspension", json={"suspended": True}
@@ -330,7 +366,7 @@ def test_start_session_ai_failure_returns_error_and_leaves_nothing(
 ) -> None:
     """D-062 的 HTTP 半边：AI 挂了给结构化错误，库里没有空会话。"""
     client, provider = fake_ai_client
-    knowledge_id = make_knowledge(client)
+    knowledge_id = make_due(client)
 
     provider.queue_stream(AiTimeout())
     response = client.post(f"/api/review/{knowledge_id}/session")
