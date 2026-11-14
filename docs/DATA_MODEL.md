@@ -404,9 +404,9 @@ FTS5 会自动创建 5 张影子表：`knowledge_fts_data`、`knowledge_fts_idx`
 | 列 | 类型 | 说明 |
 |---|---|---|
 | `id` | String(36) PK | UUID |
-| `knowledge_id` | FK → knowledge，UNIQUE | 创建知识时由 `ensure_schedule` 挂钩建行（due=现在，即立刻到期，D-060） |
+| `knowledge_id` | FK → knowledge，UNIQUE | 创建知识时由 `ensure_schedule` 挂钩建行（due=创建时刻 + 1 天，D-060 / D-074） |
 | `state` | String(16) | fsrs 卡片状态：`learning` / `review` / `relearning` |
-| `step` | Integer NOT NULL | **必须存**：fsrs 的学习步（同一天内的短间隔）也在这里，漏了它当天第二次复习会被当成首次，间隔算错 |
+| `step` | Integer NOT NULL | **必须存**：fsrs 的学习步（入库后第 1/3/7 天那几段，D-074）也在这里，漏了它第二次复习会被当成首次，间隔算错 |
 | `stability` / `difficulty` | Float 可空 | 新卡片为 NULL（与 fsrs Card 一致） |
 | `due` | UTCDateTime NOT NULL | 下次复习时间。到期列表核心查询 `WHERE status='active' AND due<=now ORDER BY due` |
 | `last_review` | UTCDateTime 可空 | |
@@ -559,6 +559,8 @@ Blueprint 要求的 **`reps` / `lapses` / `elapsed_days` / `scheduled_days`**
 `review_now` 每次提交后全量重算，不维护增量计数——单人本地库，正确性优先。
 
 测试一律 `Scheduler(enable_fuzzing=False)`，断言确定（`tests/test_scheduler.py`）。
+学习步按天配置（D-074）：`learning_steps=(1d, 2d, 4d)`、`relearning_steps=(1d,)`，
+配合建行时 `due = 创建时刻 + 1 天`，落在入库后第 1 / 3 / 7 天三个节点上。
 
 ---
 

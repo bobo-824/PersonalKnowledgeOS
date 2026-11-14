@@ -407,6 +407,11 @@ Card 与排期行的双向映射（**`step` 必须持久化**，漏了它当天�
 暂停不改 due）、历史。`create_knowledge` 挂钩 `ensure_schedule`——
 记一条知识自动进复习循环（D-060），不需要任何设置。
 
+> 后续修订（2026-11-14，D-074）：上面的 `Scheduler(enable_fuzzing=False)` 用的是
+> fsrs 默认分钟级学习步、建行 `due=创建时刻`。现已改成天级——首复 = 入库 +1 天，
+> `learning_steps=(1d, 2d, 4d)`、`relearning_steps=(1d,)`，落在第 1/3/7 天三个节点，
+> 之后 FSRS 自适应。当前配置以 `domain/scheduler.py` 与 ARCHITECTURE 为准。
+
 ④ `api/review.py` 七个端点。静态路径 `/due`、`/due/count` 声明在
 `/{knowledge_id}/...` 之前（不然 "due" 会被当成知识 id）。
 归档不能复习映射 409，理由同 AiNotConfigured：不是程序坏了，是这条数据现在不能这么操作。
