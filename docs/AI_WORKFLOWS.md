@@ -265,13 +265,24 @@ AI 会被迫在不确定的情况下也给出确定判断，这正是原则 6
 ### FSRS 集成注意点
 
 ```python
+from datetime import timedelta
 from fsrs import Scheduler
-scheduler = Scheduler(enable_fuzzing=False)   # 测试必须关掉抖动
+scheduler = Scheduler(
+    enable_fuzzing=False,                              # 测试必须关掉抖动
+    learning_steps=(timedelta(days=1), timedelta(days=2), timedelta(days=4)),
+    relearning_steps=(timedelta(days=1),),
+)
 ```
 
 - **`enable_fuzzing=False`**：FSRS 默认给复习间隔加随机抖动
-  （防止大量卡片同一天到期）。生产环境可以开，**测试必须关**，
-  否则断言不确定。
+  （防止大量卡片同一天到期）。本项目**生产也关**（理由见
+  `domain/scheduler.py` 模块注释）：单人本地应用没有"同批卡片"问题，
+  确定性优先，否则断言不确定。
+- **学习步按天，不按分钟（D-074）**：fsrs 默认 `(1m, 10m)` 是给"背卡片当场连刷"
+  设计的。本项目一条知识是一段理解，节奏改成入库 +1 天首复、第 3、7 天各一次，
+  之后由 FSRS 自适应；评"忘了"回炉隔 1 天。
+  ⚠️ good 评级取 `learning_steps[step+1]`，所以**两元组只会产生一个短间隔就毕业**，
+  要落在第 3、7 天必须给三元组 `(1d, 2d, 4d)`。
 - **字段映射缺口**（已记录在 `ROADMAP.md` 阶段 3 和 `DATA_MODEL.md`）：
   `fsrs` 6.3.2 的 `Card` 只有
   `card_id, state, step, stability, difficulty, due, last_review`，
