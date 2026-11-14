@@ -154,6 +154,32 @@ def test_chat_prompt_keeps_it_to_one_question_at_a_time() -> None:
     assert "一次只问一个小问题" in STUDY_CHAT_SYSTEM_PROMPT
 
 
+def test_chat_prompt_is_a_socratic_teacher() -> None:
+    """用户要的定位：用提问启发他自己想，而不是把结论递到他手上。"""
+    assert "苏格拉底" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "通过提问启发" in STUDY_CHAT_SYSTEM_PROMPT
+    assert "问得准" in STUDY_CHAT_SYSTEM_PROMPT
+
+
+def test_socratic_questioning_yields_to_the_stop_asking_rule() -> None:
+    """⚠️ 新定位不能变成"无休止问答"的新借口：超过 8 分停问那条
+    必须明确把苏格拉底式追问一起压住，否则两条规则打架，模型会挑着听。"""
+    assert "苏格拉底式追问的规则到这里全部让路" in STUDY_CHAT_SYSTEM_PROMPT
+
+
+def test_socratic_prompt_forbids_nitpicking() -> None:
+    """启发式提问的失败模式是抬杠：他已经讲通了还被硬挑刺。"""
+    assert "不要把提问变成抬杠" in STUDY_CHAT_SYSTEM_PROMPT
+
+
+def test_chat_prompt_does_not_treat_deeper_as_not_understood() -> None:
+    """⚠️ 苏格拉底式定位的实测副作用：模型一轮换一个角度挑刺，分数永远停在
+    7~8，"超过 8 分停问"就永远触发不了，D-072 治好的无休止问答当场复发。
+    这条校准是那个副作用的解药，必须留在提示词里。"""
+    assert '别把"还能更深"当成"还没懂"' in STUDY_CHAT_SYSTEM_PROMPT
+    assert "永远到不了 9 分" in STUDY_CHAT_SYSTEM_PROMPT
+
+
 def test_chat_prompt_scores_mastery_in_every_reply() -> None:
     """用户要的是"看得见自己到哪儿了"：每轮回答末尾必须有十分制打分。"""
     assert "掌握度：" in STUDY_CHAT_SYSTEM_PROMPT
@@ -265,6 +291,13 @@ def test_review_chat_prompt_defers_grading_to_the_dedicated_call() -> None:
     """对话过程不给评级：评级建议走 review_rate 的结构化调用，
     两件事混在一起，建议就没法过 C3 校验。"""
     assert "不要在这段对话里给评级" in REVIEW_CHAT_SYSTEM_PROMPT
+
+
+def test_review_chat_stays_an_examiner_not_a_socratic_teacher() -> None:
+    """苏格拉底式启发只加在学习室（用户拍板）。复习对话刻意是考官：
+    边考边教等于提前泄露答案，这次复习就白做了。"""
+    assert "苏格拉底" not in REVIEW_CHAT_SYSTEM_PROMPT
+    assert "不是教他" in REVIEW_CHAT_SYSTEM_PROMPT
 
 
 # ------------------------------------------------ 关系判断（阶段 4 工作流 E）
