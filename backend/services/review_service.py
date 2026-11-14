@@ -36,6 +36,7 @@ from backend.db.models import (
     ReviewSession,
 )
 from backend.domain.scheduler import (
+    FIRST_REVIEW_DELAY,
     CardState,
     DerivedStats,
     card_state_from_row,
@@ -86,7 +87,7 @@ class ReviewOutcome:
 
 
 def ensure_schedule(session: Session, knowledge: Knowledge) -> ReviewSchedule:
-    """取排期，没有就建（due=现在，即立刻到期）。
+    """取排期，没有就建（due = 现在 + 1 天，第一次复习在明天，D-074）。
 
     只 add 不 commit：调用方（create_knowledge / review_now）自己控制事务。
     """
@@ -95,7 +96,7 @@ def ensure_schedule(session: Session, knowledge: Knowledge) -> ReviewSchedule:
     )
     if schedule is not None:
         return schedule
-    fresh = new_card_state(due=utcnow())
+    fresh = new_card_state(due=utcnow() + FIRST_REVIEW_DELAY)
     schedule = ReviewSchedule(
         knowledge_id=knowledge.id,
         state=fresh.state,
