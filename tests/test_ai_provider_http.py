@@ -116,6 +116,46 @@ def test_parse_structured_rejects_empty() -> None:
         parse_structured("   ", TinySchema)
 
 
+def test_parse_structured_extracts_json_from_surrounding_prose() -> None:
+    """D-077 的核心回归：实测 DeepSeek 会间歇把草稿包在寒暄里，
+    只剥围栏处理不了这种，旧代码整段进 loads 直接炸成 schema_invalid。"""
+    content = "好的，根据这段对话我整理了如下草稿：\n{\"answer\": \"甲\", \"score\": 1}\n希望对你有帮助！"
+    value = parse_structured(content, TinySchema)
+    assert value.answer == "甲"
+    assert value.score == 1
+
+
+def test_parse_structured_extracts_json_when_prose_precedes_fence() -> None:
+    """寒暄在围栏之前：text 不以 ``` 开头，剥围栏不生效，靠抠平衡片段兜住。"""
+    content = "这是结果：\n```json\n{\"answer\": \"乙\", \"score\": 2}\n```\n以上。"
+    assert parse_structured(content, TinySchema).answer == "乙"
+
+
+def test_parse_structured_ignores_braces_inside_string_values() -> None:
+    """值里带花括号不能把配对数错——扫描必须跳过字符串内部。"""
+    content = "{\"answer\": \"用 {占位符} 表示\", \"score\": 3}"
+    value = parse_structured(content, TinySchema)
+    assert value.answer == "用 {占位符} 表示"
+
+
+def test_parse_structured_skips_a_stray_brace_before_the_object() -> None:
+    """寒暄里出现一个孤立的 `{`，第一个起点配不出合法 JSON，
+    应自动换下一个 `{` 起点找到真正那个对象。"""
+    content = "举例 { 这样的写法 {\"answer\": \"丙\", \"score\": 4} 结束"
+    assert parse_structured(content, TinySchema).answer == "丙"
+
+
+def test_parse_structured_extraction_still_enforces_types() -> None:
+    """⚠️ 放宽的是「定位」不是「校验」：抠出来的对象类型仍不合格就要报错，
+    且不把原文（这里塞哨兵）泄进异常。"""
+    with pytest.raises(AiSchemaInvalid) as excinfo:
+        parse_structured(
+            f"前缀 {{\"answer\": 123, \"score\": \"{SENTINEL_KEY}\"}} 后缀", TinySchema
+        )
+    assert any("score" in name for name in excinfo.value.invalid_fields)
+    assert SENTINEL_KEY not in str(excinfo.value)
+
+
 def test_parse_structured_reports_only_field_paths_not_values() -> None:
     """⚠️ C6 的关键一条：ValidationError 的 errors() 里 `input` 装着实际收到的值，
     那可能是用户的知识正文。异常里只允许出现字段路径。"""
@@ -306,6 +346,17 @@ def test_malformed_structured_output_raises_schema_invalid_not_something_else() 
     with pytest.raises(AiSchemaInvalid):
         provider.chat([ChatMessage(role="user", content="甲")], TinySchema)
     provider.close()
+
+
+def test_chat_tolerates_prose_wrapped_json_from_endpoint() -> None:
+    """D-077 端到端：DeepSeek 间歇把 JSON 包在寒暄里，服务端仍 200。
+    过去这会被判 schema_invalid；现在抠出对象正常返回。"""
+    wrapped = "好的，草稿如下：\n{\"answer\": \"沿负梯度方向更新参数\", \"score\": 80}\n请查收。"
+    provider = make_provider(lambda request: httpx.Response(200, json=envelope(wrapped)))
+    result = provider.chat([ChatMessage(role="user", content="甲")], TinySchema)
+    provider.close()
+    assert result.value.answer == "沿负梯度方向更新参数"
+    assert result.value.score == 80
 
 
 @pytest.mark.parametrize(

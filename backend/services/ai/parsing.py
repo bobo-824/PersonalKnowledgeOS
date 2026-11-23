@@ -74,13 +74,9 @@ def parse_structured(content: str, schema: type[ModelT]) -> ModelT:
     if not text:
         raise AiSchemaInvalid(("$body",), detail="AI 返回了空内容")
 
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        # exc.pos / exc.lineno 是位置数字，不含内容本身
-        raise AiSchemaInvalid(
-            ("$body",), detail=f"返回内容不是合法 JSON（第 {exc.lineno} 行第 {exc.colno} 列）"
-        ) from None
+    data = _loads_json_lenient(text)
+    if not isinstance(data, dict):
+        raise AiSchemaInvalid(("$body",), detail="返回内容里找不到合法的 JSON 对象")
 
     try:
         return schema.model_validate(data)
@@ -88,6 +84,58 @@ def parse_structured(content: str, schema: type[ModelT]) -> ModelT:
         raise AiSchemaInvalid(
             _invalid_field_names(exc), detail="返回内容不符合约定的字段结构"
         ) from None
+
+
+def _loads_json_lenient(text: str) -> object | None:
+    """先按整段就是 JSON 解析；不行再从里面抠第一个能独立成对象的平衡片段。
+
+    只剥围栏处理不了「寒暄在前、JSON 在中间、收尾在后」这种输出——实测 DeepSeek
+    官方会**间歇**这么答，中转站更常见，正是「同一个模型时好时坏」的来源。
+    这里仍然**不猜内容**：只认模型真正吐出来的、能独立解析成对象的那一段，
+    抠不到就返回 None，由调用方照实报 AiSchemaInvalid。
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return _first_json_object(text)
+
+
+def _first_json_object(text: str) -> object | None:
+    """扫描文本，返回第一个能独立解析成 JSON 对象的平衡 `{...}`（解析后的对象）。
+
+    跟踪字符串与转义，避免把字符串值里的花括号算进配对；候选当场 `json.loads`，
+    解析成功且确实是对象才采用，否则换下一个 `{` 起点继续找。全程不改动一个字节。
+    """
+    total = len(text)
+    for start in range(total):
+        if text[start] != "{":
+            continue
+        depth = 0
+        in_string = False
+        escaped = False
+        for index in range(start, total):
+            char = text[index]
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                continue
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        parsed = json.loads(text[start : index + 1])
+                    except json.JSONDecodeError:
+                        break  # 这个起点配不出合法 JSON，换下一个 `{`
+                    return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 def _invalid_field_names(exc: ValidationError) -> tuple[str, ...]:
