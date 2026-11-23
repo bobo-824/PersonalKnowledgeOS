@@ -242,8 +242,33 @@ def test_app_window_uses_private_profile_and_app_mode(
     monkeypatch.setattr(dl.subprocess, "Popen", fake_popen)
     window, browser = dl.open_app_window("http://127.0.0.1:8000/")
     assert window is not None and browser == "chrome.exe"
-    assert "--app=http://127.0.0.1:8000/" in calls[0]
+    app_arg = next(arg for arg in calls[0] if arg.startswith("--app="))
+    assert app_arg.startswith("--app=http://127.0.0.1:8000/?v=")
     assert f"--user-data-dir={dl.WINDOW_PROFILE}" in calls[0]
+
+
+def test_app_window_cache_busts_url_every_launch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-079：独立配置里可能缓存着旧 index.html，每次启动必须给一个没缓存过的新地址。"""
+    calls: list[list[str]] = []
+
+    def fake_popen(args: list[str], **kwargs: object) -> FakeProcess:
+        calls.append(args)
+        return FakeProcess()
+
+    monkeypatch.setattr(dl, "browser_candidates", lambda: ["chrome.exe"])
+    monkeypatch.setattr(dl.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(dl.time, "time", lambda: 1000.0)
+    dl.open_app_window("http://127.0.0.1:8000/")
+    monkeypatch.setattr(dl.time, "time", lambda: 2000.0)
+    dl.open_app_window("http://127.0.0.1:8000/")
+
+    first = next(arg for arg in calls[0] if arg.startswith("--app="))
+    second = next(arg for arg in calls[1] if arg.startswith("--app="))
+    assert first == "--app=http://127.0.0.1:8000/?v=1000"
+    assert second == "--app=http://127.0.0.1:8000/?v=2000"
+    assert first != second
 
 
 def test_app_window_falls_through_browsers_then_gives_up(

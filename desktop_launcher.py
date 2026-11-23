@@ -253,10 +253,16 @@ def browser_candidates() -> list[str]:
 
 def open_app_window(url: str) -> tuple[subprocess.Popen | None, str | None]:
     """向浏览器要一个独立窗口，并且留住进程句柄。"""
+    # 每次启动给地址加一个时间戳查询参数：app 用的是独立浏览器配置，里面可能缓存着
+    # **旧版 index.html**（旧版还没加 no-cache 时被启发式存下）。不加参数时浏览器直接
+    # 吃那份旧缓存、不重新校验，于是永远去拉已被重建删掉的旧哈希 chunk → 详情页 404
+    # 死屏（D-079）。换个 ?v= 让每次启动都是一个没缓存过的新地址，强制取新壳；
+    # 其余资源是内容哈希命名，本来就该按新名取，不受影响。
+    app_url = f"{url}?v={int(time.time())}"
     for browser in browser_candidates():
         arguments = [
             browser,
-            f"--app={url}",
+            f"--app={app_url}",
             f"--user-data-dir={WINDOW_PROFILE}",
             "--no-first-run",
             "--no-default-browser-check",
