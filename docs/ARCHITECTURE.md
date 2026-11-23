@@ -256,7 +256,7 @@ def get_session() -> Generator[Session, None, None]:
 ## 四、前端结构
 
 ```
-frontend/src/                     34 个 TS/TSX 文件（tsc -b --listFiles 实测）
+frontend/src/                     47 个 TS/TSX 文件（tsc -b --listFiles 实测）
 ├── main.tsx                 应用入口：QueryClientProvider + RouterProvider
 ├── index.css                Tailwind 4 入口 + CSS 变量主题
 ├── app/
@@ -264,8 +264,12 @@ frontend/src/                     34 个 TS/TSX 文件（tsc -b --listFiles 实�
 │   └── navigation.ts        NAV_ITEMS：导航项的单一数据源
 ├── components/
 │   ├── layout/
-│   │   ├── AppShell.tsx         响应式外壳（侧栏 / 抽屉）
-│   │   └── StagePlaceholder.tsx 未实现页面的诚实占位
+│   │   └── AppShell.tsx         响应式外壳（可拖拽侧栏 / 移动端抽屉）
+│   ├── ai/
+│   │   ├── CopyButton.tsx       复制一段文本（剪贴板 API + execCommand 回退）——
+│   │   │                        桌面 app 窗口右键菜单没有「复制」，靠它在页内复制（D-076）
+│   │   ├── DraftConfirmPanel.tsx 提取草稿的确认面板（用户可编辑后才落库）
+│   │   └── ReviewSection.tsx    知识审查区，逐条处置 AI 建议
 │   ├── feedback/
 │   │   └── Notice.tsx           Notice / ApiErrorNotice / EmptyState
 │   ├── knowledge/
@@ -705,7 +709,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9169 行 Python（backend + migrations），前端 45 个 TS/TSX 文件，测试 754 个（22 个测试文件）。
+后端 9169 行 Python（backend + migrations），前端 47 个 TS/TSX 文件，测试 754 个（22 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
