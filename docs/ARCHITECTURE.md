@@ -42,7 +42,7 @@ Blueprint 明确不做这些（见 `ROADMAP.md` 末尾"明确不做的内容"）
 Vite 配了 `strictPort: true`：端口被占用时**直接报错**，
 而不是悄悄换一个端口让人对着 5173 的空页面发呆。
 
-### SPA 回落的两个必要细节
+### SPA 回落的三个必要细节
 
 `backend/main.py::_mount_frontend` 里：
 
@@ -54,9 +54,14 @@ Vite 配了 `strictPort: true`：端口被占用时**直接报错**，
    ```python
    candidate = (dist / full_path).resolve()
    if not candidate.is_relative_to(dist) or not candidate.is_file():
-       return FileResponse(index)
+       return FileResponse(index, headers={"Cache-Control": "no-cache"})
    ```
    少了 `is_relative_to` 这一行，`/../../.env` 就能读到配置文件。
+
+3. **index.html 必须 `Cache-Control: no-cache`**：它引用的是内容哈希命名的 chunk，
+   `vite build` 每次换名并清空旧名（`emptyOutDir`）。浏览器若复用缓存的旧 index.html，
+   会去拉已被删掉的旧哈希 → 404，桌面 app 窗口卡在旧版、还报错（D-077 的复制问题）。
+   no-cache 配合 FileResponse 自带 ETag：未变走 304、几乎零成本，改了立刻生效。
 
 ### 前端未构建时的降级
 
@@ -407,7 +412,7 @@ queries: {
 ## 五、测试架构
 
 ```
-tests/                            754 个测试（各文件收集数相加 == 全量运行数）
+tests/                            761 个测试（各文件收集数相加 == 全量运行数）
 ├── conftest.py               夹具（全部走真实迁移 + 临时目录）
 ├── test_health.py            /api/health 的语义与隐私（5）
 ├── test_migrations.py        迁移结构与数据完整性保证（29）
@@ -415,9 +420,9 @@ tests/                            754 个测试（各文件收集数相加 == �
 ├── test_schemas.py           Pydantic 校验与 422 报文（50）
 ├── test_search_index.py      服务层：转义、索引一致性、索引修复（32）
 ├── test_knowledge_service.py 服务层：版本号推导、N+1 查询次数（14）
-├── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（141）
+├── test_knowledge_api.py     HTTP 端到端：路由、CRUD、版本、搜索、非回归（142）
 ├── test_ai_provider.py       Provider 契约与五类失败（18，不建库不联网）
-├── test_ai_provider_http.py  httpx 真实实现（54，全部 MockTransport，不联网）
+├── test_ai_provider_http.py  httpx 真实实现（60，全部 MockTransport，不联网）
 ├── test_ai_prompts.py        提示词与词表/Schema 的交叉锁定（57，不建库不联网）
 ├── test_ai_schemas.py        C3 边界：草稿与五分类（43，不建库不联网）
 ├── test_ai_service.py        编排层：C1/C2/C3/C5 + 幂等 + 窄路径（31）
@@ -709,7 +714,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9169 行 Python（backend + migrations），前端 47 个 TS/TSX 文件，测试 754 个（22 个测试文件）。
+后端 9230 行 Python（backend + migrations），前端 47 个 TS/TSX 文件，测试 754 个（22 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
@@ -736,7 +741,7 @@ def port_state(port, host="127.0.0.1"):
 | `backend/schemas/ai_api.py` | ✅ 完成（291 行）：AI 接口的请求/响应模型。和 `schemas/ai.py`（C3 边界）分文件，理由写在该文件顶部 |
 | `backend/api/knowledge.py` | ✅ 9 个端点：`POST/GET ""`、`GET/PUT "/{id}"`、`archive`、`restore`、`search`、`domains`、`similar` |
 | 前端知识库三页 | ✅ 列表（搜索/筛选/分页）、详情（来源 + 版本历史）、新建与编辑共用表单 |
-| `backend/services/ai/` | ✅ 完整（1340 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败 + `AiEndpointNotChatApi`（200 但返回的不是对话数据，如地址少 `/v1` 命中官网）、`parsing.py` 解析校验、`openai_compat.py` httpx 实现（流式会识别"整段没有 SSE data 行"并报错，不再静默回空）、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`（学习室是苏格拉底式老师、用提问启发——D-075；每轮给 `掌握度：N/10`，超过 8 分停止追问——D-072）、`factory.py` 按配置构造 + 连通性探测（探针必须真的拿到文字才报成功） |
+| `backend/services/ai/` | ✅ 完整（1388 行）：`provider.py` 协议（含 `close()`）、`errors.py` 五类失败 + `AiEndpointNotChatApi`（200 但返回的不是对话数据，如地址少 `/v1` 命中官网）、`parsing.py` 解析校验（容忍 JSON 被寒暄/围栏包住：整段 loads 失败后抠第一个平衡 `{...}`，只放宽定位不猜内容——D-077）、`openai_compat.py` httpx 实现（流式会识别"整段没有 SSE data 行"并报错，不再静默回空）、`fake.py` 测试替身、`prompts.py` 提示词 + `PROMPT_VERSION`（学习室是苏格拉底式老师、用提问启发——D-075；每轮给 `掌握度：N/10`，超过 8 分停止追问——D-072）、`factory.py` 按配置构造 + 连通性探测（探针必须真的拿到文字才报成功） |
 | **AI 集成** | ✅ **阶段 2 完成**（2026-11-04）：三个工作流从界面一路跑到数据库。前端 `frontend/src/components/ai/`（草稿确认面板、审查区）+ `frontend/src/lib/ai-{api,queries,schemas}.ts`（SSE 手工切帧、zod 契约逐字段对齐后端）。真机联调已对真实 DeepSeek 全链路跑通（含流式、提取、审查、采纳、配置写入即时生效）。AI 相关前端页面按路由 lazy 分包（主包现为 498 kB） |
 | `backend/domain/scheduler.py` | ✅ 完整：FSRS 接线纯函数（不 import sqlalchemy/fastapi）。`Scheduler(enable_fuzzing=False, learning_steps=(1d,2d,4d), relearning_steps=(1d,))`——复习节奏天级，入库后第 1/3/7 天各一次再自适应（D-074）、Card ⇄ 排期行双向映射（`step` 必须持久化）、`derive_stats()` 从历史推算 reps/lapses/elapsed_days/scheduled_days |
 | `backend/services/review_service.py` | ✅ 完整：到期列表（归档/暂停/未到期三重过滤、不带理解正文）、`review_now`（**用户评级是唯一权威，C7**）、暂停/恢复（幂等）、历史。`create_knowledge` 挂钩 `ensure_schedule`——记一条知识自动进复习循环，首复排在入库 +1 天（D-060 / D-074） |

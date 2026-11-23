@@ -1198,3 +1198,37 @@ D-038 ~ D-043 是用户确认过的产品决策。
   实测（加载一条已有对话）：5 条 AI 回复各自渲染出复制按钮、5 条用户消息都没有；
   点击后按钮变「已复制」，即 `writeText` 成功。读回剪贴板被 `clipboard-read` 权限拒
   ——那是独立且更严的权限，复制只写不读，不影响粘贴到别处。
+
+### D-077 抽取解析加固：容忍 JSON 被寒暄包住；index.html 禁缓存；失败日志补 detail
+
+- **动因**（2026-11-23 用户反馈两件事）：① 沉淀成知识时报「AI 返回的内容无法解析」；
+  ② 加了复制按钮后用户「还是复制不了」。
+- **① 抽取失败的根因**：日志里 `POST .../extract` 打到 `api.deepseek.com` 是 **200**，
+  同一段对话一次成功一次 `schema_invalid`——是 DeepSeek **间歇**把草稿包在
+  「寒暄 + JSON + 收尾文字」里。旧 `parse_structured` 只剥「文本正好以 ``` 开头」的围栏，
+  夹了寒暄就以普通文字进 `json.loads` 当场炸。又因 `KnowledgeDraft` 每个字段都带默认、
+  `extra="ignore"`，几乎不可能是「字段不符」，只能是「定位不到 JSON」。
+- **修法**（收口在 `services/ai/parsing.py`，真实与假 Provider 共用同一份）：
+  `_loads_json_lenient` 先整体 `json.loads`；失败再 `_first_json_object` 扫描文本，返回
+  第一个能独立解析成对象的**平衡 `{...}`**（跟踪字符串与转义，值里的花括号不算进配对，
+  起点配不出就换下一个 `{`）。**只放宽定位、不猜内容**：抠不到仍照实抛
+  `AiSchemaInvalid`；抠到之后 `model_validate` 一字不松（C3）。
+- **② 复制不了的根因**：不是 Service Worker（全仓无 sw.js/注册，日志里的 `/sw.js 200`
+  是 SPA 兜底把 index.html 当它发出去了）。是用户 app 窗口停在**旧构建**：`vite build`
+  配了 `emptyOutDir`，重建后旧哈希 chunk 被删，旧壳再懒加载就 404、也没有按钮。
+  前端代码本身没问题（上一轮已实测点击「已复制」）。
+- **配套两处后端修**：(a) `main.py` 给 index.html 加 `Cache-Control: no-cache`——配合
+  FileResponse 自带 ETag，每次重新校验、未变走 304，杜绝「旧壳 + 新后端」；
+  (b) `AiError` 兜底日志补上 `exc.detail`（契约上只含 base_url/状态码/字段名/一句
+  无数据说明，永不含正文，C6），今后这类间歇失败能一眼看出是哪一支。
+- **测试落点**：`test_ai_provider_http.py` +6（前后夹文字、文字在围栏前、值里带花括号、
+  孤立 `{` 换起点、抠到仍校验类型且不漏原文，外加 provider 层 200 夹带 JSON 端到端）；
+  `test_knowledge_api.py` +1（`GET /` 带 `no-cache`）。变异：把 `_loads_json_lenient`
+  退回「只 `json.loads` 整段」，夹带文字那几条必红。
+- **诚实边界**：未花真实 DeepSeek 请求复现，结论据「200 + 同模型间歇 + 全默认 schema」
+  推断为夹带文字。若个别端点连抠取都救不回（例如吐的是带尾逗号的畸形 JSON，那会改动
+  内容不能自动删），日志 detail 会指明；另一把扳手是设置页的「JSON 模式」开关，
+  打开后 DeepSeek 官方直接返回纯 JSON。
+- **生效需要重启后端**：①的解析改动与②的 no-cache 都在**后端 Python**里，正在运行的
+  服务不会自动热更。桌面版**关掉 app 窗口再双击图标**（关窗即停）即拉新后端 + 新前端，
+  两件事一起解决。
