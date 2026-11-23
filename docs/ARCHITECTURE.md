@@ -413,7 +413,7 @@ queries: {
 ## 五、测试架构
 
 ```
-tests/                            761 个测试（各文件收集数相加 == 全量运行数）
+tests/                            762 个测试（各文件收集数相加 == 全量运行数）
 ├── conftest.py               夹具（全部走真实迁移 + 临时目录）
 ├── test_health.py            /api/health 的语义与隐私（5）
 ├── test_migrations.py        迁移结构与数据完整性保证（29）
@@ -436,7 +436,7 @@ tests/                            761 个测试（各文件收集数相加 == �
 ├── test_relation_service.py  关系服务：审核与防骚扰（19）
 ├── test_relation_api.py      关系端点（9）
 ├── test_backup_export.py     备份与导出（13）
-└── test_desktop_launcher.py  桌面启动器：纯逻辑与编排，全替身不真起服务（35）
+└── test_desktop_launcher.py  桌面启动器：纯逻辑与编排，全替身不真起服务（36）
 ```
 
 分层是有意的：domain 的纯函数测试跑得最快也最容易定位，
@@ -593,13 +593,17 @@ start.sh                 Git Bash / macOS / Linux 启动器
 用 `.venv\Scripts\pythonw.exe` 跑，所以全程没有控制台窗口。顺序是：
 读 `.env` 的 `PKOS_HOST/PKOS_PORT` → 检查依赖与前端构建是否就位 → 拿单实例锁 →
 `alembic upgrade head` → 起 uvicorn（输出进 `logs/server.log`）→
-轮询 `/api/health` 直到就绪 → 用 Chrome/Edge 的 `--app` 模式开一个独立窗口 →
+轮询 `/api/health` 直到就绪 → 用 Chrome/Edge 的 `--app` 模式开一个独立窗口（地址带
+`?v=<时间戳>`，见下）→
 `window.wait()` → 关窗即停服务。
 
-两个不显然的选择：窗口必须配一份**独立浏览器配置**，否则启动会被转交给
+三个不显然的选择：窗口必须配一份**独立浏览器配置**，否则启动会被转交给
 已在跑的日常浏览器、Popen 立刻返回，就没有进程可以等"用户关窗了"；
 就绪判定看 `/api/health` 的 JSON 而不是端口通不通，否则端口上蹲着别的程序时
-会误判成"服务已经在跑"，关窗也不会去停它。
+会误判成"服务已经在跑"，关窗也不会去停它；开窗口地址每次加 `?v=<时间戳>`，
+因为独立配置里可能缓存着**旧版 index.html**（旧版还没 no-cache 时被启发式存下），
+不加参数浏览器会直接吃旧缓存、不重新校验，于是永远拉已被重建删掉的旧哈希 chunk
+→ 详情页 404 死屏（D-079）。其余资源是内容哈希命名，本就该按新名取，不受影响。
 
 三条安全性质都有真机实测：运行中再点一次只开窗口不抢服务；复用别人起的服务时
 关窗不去停它；自己起的服务关窗后连 venv 跳板进程派生的子进程一起退干净。
@@ -715,7 +719,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9230 行 Python（backend + migrations），前端 48 个 TS/TSX 文件，测试 761 个（22 个测试文件）。
+后端 9230 行 Python（backend + migrations），前端 48 个 TS/TSX 文件，测试 762 个（22 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
