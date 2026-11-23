@@ -1,63 +1,56 @@
 # Personal Knowledge OS
 
-个人知识管理与长期学习系统。**本地优先**，数据全部存在你自己电脑上。
+A personal knowledge-management and long-term-learning system. **Local-first** — all of your data stays on your own machine.
 
-核心理念一句话：**记录自己的理解 → 让 AI 检验和修正 → 通过科学复习巩固记忆 → 再把知识连成网络。**
+The core idea in one line: **write down your own understanding → let AI test and correct it → consolidate it through spaced review → then connect the knowledge into a network.**
 
-这不是普通的笔记软件。它的核心资产不是你收藏了多少文章，而是**你对知识形成的理解**，以及这些理解如何随时间变化、修正和相互连接。
+This is not an ordinary note-taking app. Its central asset is not how many articles you have saved, but **the understanding you have formed**, and how those understandings change, get corrected, and link to one another over time.
+
+> Note: the application UI is currently in Chinese. Button and menu names in this guide are English descriptions of what they do.
 
 ---
 
-## 现在能做什么（重要）
+## What works right now (important)
 
-项目按阶段开发，**当前完成到阶段 5：备份与导出**（2026-11-04 收尾）。
+The project is built in stages; **it is currently complete through Stage 5: Backup & Export** (wrapped up 2026-11-04).
 
-| 状态 | 内容 |
+| Status | Features |
 |---|---|
-| ✅ 已可用 | 记录知识（名称、领域、自己的理解、理解依据、尚存疑问、学习来源）、查看、编辑、归档与恢复、中文全文搜索、领域自动补全、重复记录提示、理解的**追加式历史版本** |
-| ✅ 已可用（基础设施） | 本地数据库与迁移、配置管理、环境自检、一键安装、一键启动、响应式界面外壳、首页真实自检 |
-| ✅ 已可用（阶段 2） | AI 学习室（流式对话）、从对话提取知识草稿并确认成知识、知识审查与逐条处置、采纳建议生成新版本（**AI 永不直接改写你的原文**）、设置页填模型配置（写 `.env`、即时生效、「测试连接」）、清空对话历史 |
-| ✅ 已可用（阶段 3） | **复习系统**：每条知识自动进复习循环（单条可暂停），**入库后第 1、3、7 天各复习一次，之后 FSRS 按你的掌握度自动拉长间隔**；到期列表 → 纯自测（看自己的理解、四级评级）或 AI 对话复习（AI 提问 → 追问 → 评价建议 → **你自己确认评级**），详情页看排期与复习历史。**不配 AI 照样能复习** |
-| ✅ 已可用（阶段 4） | **知识图谱**：相关候选自动免费召回 → 点一次按钮让 AI 逐对判断（点之前明示要花几次请求）→ 你确认 / 拒绝 / 改类型 / 暂时忽略 → 确认过的关系出现在图谱上（React Flow 可视化），拒绝过的对不再来烦你。图谱页有成长统计卡；详情页新增「相关知识」。不配 AI 时召回和图谱照常可用，只是没有候选可审 |
-| ✅ 已可用（阶段 5） | **数据备份与导出**：每次启动自动备份一份（失败只警告、绝不拦你进应用）+ 设置页手动备份，保留最近 7 份；设置页一键下载 **Markdown 单文件**（按领域分组、可读性好）或 **JSON 全量**（逐表完整保真，方便以后导入别的工具）。恢复方法写在设置页说明里 |
+| ✅ Available | Record knowledge (title, domain, your own understanding, reasoning behind it, open questions, learning sources), view, edit, archive & restore, full-text search, domain autocomplete, duplicate-entry hints, and an **append-only version history** of your understanding |
+| ✅ Available (infrastructure) | Local database & migrations, configuration management, environment self-check, one-command install, one-command start, responsive app shell, real homepage health check |
+| ✅ Available (Stage 2) | AI Study Room (streaming chat), extract a knowledge draft from the conversation and confirm it into knowledge, knowledge review with per-item disposition, adopting a suggestion creates a new version (**AI never overwrites your original text**), settings page for model config (writes `.env`, takes effect immediately, "Test connection"), clear conversation history |
+| ✅ Available (Stage 3) | **Spaced review**: every knowledge item automatically enters a review cycle (individual items can be paused); **the first reviews land on day 1, day 3, and day 7 after you save it, then FSRS stretches the interval based on your mastery**. Due list → self-test (recall, then rate on a 4-level scale) or AI-chat review (AI asks → probes → suggests a rating → **you confirm the rating yourself**); the detail page shows the schedule and review history. **Review works even without AI configured** |
+| ✅ Available (Stage 4) | **Knowledge graph**: related candidates are recalled for free → one click lets AI judge each pair (the number of requests is shown before you click) → you confirm / reject / change the type / ignore for now → confirmed relations appear on the graph (React Flow), and pairs you rejected never nag you again. The graph page has a growth-stats card; the detail page adds a "Related knowledge" section. Without AI, recall and the graph still work — there just are no candidates to review |
+| ✅ Available (Stage 5) | **Backup & export**: an automatic backup on every launch (failure only warns, never blocks you from entering the app) plus manual backup from the settings page, keeping the 7 most recent; one-click download from the settings page as a **single Markdown file** (grouped by domain, readable) or **full JSON** (table-by-table fidelity, easy to import into other tools later). Restore instructions are written into the settings page |
 
-**用 AI 前先配置**：打开「设置」页填 API 地址、密钥、模型名（支持任何
-OpenAI 兼容接口，如 DeepSeek、本地 Ollama），点「测试连接」确认能通。
-**API 地址一般要填到 `/v1` 为止**（例如 `https://api.deepseek.com/v1`），
-只填域名会命中服务商的官网而不是接口——表现就是「连上了但 AI 不说话」。
-不配置也完全不影响手动记录和搜索。密钥只存在本机 `.env` 文件里，不会进 Git。
+**Configure before using AI**: open the **Settings** page and fill in the API base URL, key, and model name (any OpenAI-compatible endpoint works — e.g. DeepSeek, a local Ollama), then click **Test connection** to confirm it works.
+**The base URL usually needs to end at `/v1`** (e.g. `https://api.deepseek.com/v1`). Entering only the domain hits the provider's website instead of the API — which shows up as "connected, but the AI says nothing".
+Not configuring it does not affect manual recording or search at all. The key is stored only in the local `.env` file and never enters Git.
 
-**AI 学习室的对话节奏**：它是一位**苏格拉底式的老师**——擅长用提问启发你自己想，
-而不是把结论递到你手上。它不会一口气讲给你听，而是先问你自己怎么理解，
-从你说出口的话里找缝隙追问理由，答不上来就把问题拆得更小。
-每轮回答的**最后一行都会给一个掌握度打分**（`掌握度：N/10` + 一句话理由）。
-**分数超过 8 分它就不再追问**，改由你决定：就此收尾点「把这段对话沉淀成知识」，
-还是继续深挖。聊到懂为止，不是聊到烦为止。
+**How the AI Study Room conducts a conversation**: it acts as a **Socratic teacher** — good at prompting your own thinking with questions rather than handing you conclusions. It won't lecture you in one go; it first asks how you currently understand something, finds the gaps in what you have already said, presses on your reasoning, and breaks the question down smaller when you get stuck.
+**The last line of every reply carries a mastery score** (`掌握度：N/10` — "Mastery: N/10" — plus a one-sentence reason).
+**Once the score passes 8 it stops probing** and hands the choice back to you: wrap up and click "Turn this conversation into knowledge", or keep digging. The conversation ends when you understand it, not when you're worn out.
 
-**复制 AI 的回复**：每条回复下面都有一个「复制」按钮，点一下整段就进剪贴板，
-再到别处 Ctrl+V。之所以自带按钮，是因为桌面图标打开的是浏览器应用窗口，那种窗口
-的右键菜单没有「复制」——想只复制其中几句，照常选中文字再用 Ctrl+C 也行。
+**Copying the AI's replies**: every reply has a **Copy** button beneath it — one click puts the whole message on the clipboard, then Ctrl+V elsewhere. The button exists because the desktop icon opens a browser app window, and that window's right-click menu has no "Copy". To copy only part of a reply, just select the text and use Ctrl+C as usual.
 
-**这一版的核心保证**：你写的「自己的理解」**永远不会被覆盖**。
-每次改动理解正文都会追加一个新版本，旧版本原样保留、随时能翻回去看当初是怎么想的。
-只改名称、领域、摘要或来源属于整理性工作，不会产生新版本。
+**The guarantee this version makes**: the "your own understanding" text you write is **never overwritten**. Every change to the understanding body appends a new version; old versions are kept verbatim and you can flip back at any time to see how you originally thought about it. Changing only the title, domain, summary, or sources is housekeeping and does not create a new version.
 
-界面上所有页面都是真实功能，没有占位页。
-完整路线图和逐条验收结果见 [docs/ROADMAP.md](docs/ROADMAP.md)。
+Every page in the UI is real functionality — there are no placeholder pages.
+The full roadmap and per-item acceptance results are in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ---
 
-## 环境要求
+## Requirements
 
-| 项目 | 要求 | 说明 |
+| Item | Requirement | Notes |
 |---|---|---|
-| 操作系统 | Windows 10/11 | 也支持 Linux / macOS |
-| Python | 3.13 或更新 | 本项目在 3.14 上开发验证 |
-| uv | 任意较新版本 | Python 依赖管理器，负责建虚拟环境 |
-| Node.js | 22 或更新 | 前端构建需要 |
-| 磁盘空间 | 1 GB 以上 | 依赖 + 数据库 |
+| OS | Windows 10/11 | Linux / macOS also supported |
+| Python | 3.13 or newer | Developed and verified on 3.14 |
+| uv | Any recent version | Python dependency manager; creates the virtual environment |
+| Node.js | 22 or newer | Needed for the frontend build |
+| Disk space | 1 GB+ | Dependencies + database |
 
-不确定自己装没装？直接跑自检，它会逐项告诉你缺什么、怎么补：
+Not sure what's installed? Run the self-check — it tells you, item by item, what's missing and how to fix it:
 
 ```powershell
 python scripts/doctor.py
@@ -65,75 +58,75 @@ python scripts/doctor.py
 
 ---
 
-## 安装
+## Installation
 
-在项目根目录（`D:\PersonalKnowledgeOS`）打开 PowerShell，执行一条命令：
+Open PowerShell in the project root (`D:\PersonalKnowledgeOS`) and run one command:
 
 ```powershell
 python scripts\setup.py
 ```
 
-它会依次完成：环境自检 → 安装后端依赖 → 生成 `.env` → 建数据库并迁移 → 安装前端依赖 → 构建前端。
+It runs, in order: environment self-check → install backend dependencies → generate `.env` → create and migrate the database → install frontend dependencies → build the frontend.
 
-**这个脚本可以重复运行**，已经完成的步骤会自动跳过。任何一步失败都会停下来并告诉你怎么办。
+**This script is safe to re-run**; steps already completed are skipped automatically. If any step fails, it stops and tells you what to do.
 
-> 如果提示脚本被禁止运行，用这条命令绕过（只对当前这次生效，不改动系统设置）：
+> If it says script execution is disabled, use this command to bypass it (for this run only, without changing system settings):
 > ```powershell
 > powershell -ExecutionPolicy Bypass -File scripts\setup.py
 > ```
-> 实际上 `setup.py` 是 Python 脚本，一般不受执行策略限制；受限制的是下面的 `start.ps1`。
+> In practice `setup.py` is a Python script and is usually not subject to the execution policy; the one that is, is `start.ps1` below.
 
 ---
 
-## 启动
+## Starting the app
 
-### 桌面图标（最省事）
+### Desktop icon (the easiest)
 
-安装完之后运行一次：
+After installing, run this once:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-shortcut.ps1
 ```
 
-桌面上会出现「个人知识库」图标，**双击即可启动**：后台自动起服务（全程没有黑窗口），然后弹出一个**独立的应用窗口**——没有地址栏和标签栏，看起来就是一个单独的软件。**关掉这个窗口，后台服务自动停止**，不留进程。
+A "Personal Knowledge OS" icon appears on the desktop. **Double-click to launch**: it starts the service in the background (no console window at all), then opens a **standalone app window** — no address bar, no tabs, it looks like its own piece of software. **Close that window and the background service stops automatically**, leaving no process behind.
 
-| 情况 | 结果 |
+| Situation | Result |
 |---|---|
-| 双击（服务没在跑） | 先把数据库结构升到最新，再起服务，几秒后弹出应用窗口 |
-| 服务已经在跑时再双击 | 不会起第二个服务，只把窗口叫出来 |
-| 关掉应用窗口 | 后台服务自动停止 |
-| 服务是你自己用 `.\start.ps1` 起的 | 双击只开窗口；关窗口**不会**去停它——要停就回原来的终端按 Ctrl+C |
-| 服务起不来（端口被占、`.env` 填错等） | 弹一个窗口把原因和解决办法写清楚，细节记在 `logs\server.log` |
-| 电脑上没有 Chrome 也没有 Edge | 退回默认浏览器的普通标签页，并提示这种方式没法自动停服务 |
+| Double-click (service not running) | Migrates the database to the latest version first, then starts the service; the app window appears a few seconds later |
+| Double-click while the service is already running | Does not start a second service; just brings up the window |
+| Close the app window | The background service stops automatically |
+| You started the service yourself with `.\start.ps1` | Double-click only opens the window; closing the window does **not** stop that service — to stop it, go back to the original terminal and press Ctrl+C |
+| The service fails to start (port taken, bad `.env`, etc.) | A dialog explains the cause and the fix; details are written to `logs\server.log` |
+| Neither Chrome nor Edge is installed | Falls back to a normal tab in your default browser, and warns that this mode cannot auto-stop the service |
 
-细节与排查：
+Details and troubleshooting:
 
-- 应用窗口用的是浏览器的一份**独立配置**（`%LOCALAPPDATA%\pkos-desktop-app\browser-profile`），不碰你平时上网的书签、扩展和登录状态。删掉它等于重置这个窗口的浏览器设置（窗口大小之类）；你的知识数据不在那里，在项目 `data\` 目录里。
-- 运行记录在 `logs\launcher.log`（每次点击、什么时候起的服务、什么时候关的窗口）和 `logs\server.log`（服务自己的输出）。两个文件写大了会自动截尾，不会越攒越多。
-- 万一服务成了"孤儿"（比如强行结束了启动器，窗口早没了它还在跑），在 PowerShell 里运行这一行停掉它：
+- The app window uses a **separate browser profile** (`%LOCALAPPDATA%\pkos-desktop-app\browser-profile`), so it never touches your everyday bookmarks, extensions, or sign-in state. Deleting it just resets this window's browser settings (like window size); your knowledge data is not there — it lives in the project's `data\` directory.
+- Run records are in `logs\launcher.log` (each click, when the service started, when the window closed) and `logs\server.log` (the service's own output). Both files are auto-trimmed when they grow large, so they never pile up forever.
+- If the service ever becomes an "orphan" (e.g. the launcher was force-killed, so the window is gone but the service keeps running), run this one line in PowerShell to stop it:
 
 ```powershell
 Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object { $_.CommandLine -like '*uvicorn*backend.main:app*' } | ForEach-Object { Stop-Process -Id $_.ProcessId }
 ```
 
-- 换端口还是改 `.env` 里的 `PKOS_PORT`：启动器和服务读的是同一份文件。
-- 这一节只管 Windows。macOS / Linux 继续用下面的 `./start.sh`。
+- To change the port, edit `PKOS_PORT` in `.env` — the launcher and the service read the same file.
+- This section covers Windows only. On macOS / Linux keep using `./start.sh` below.
 
-### PowerShell（推荐）
+### PowerShell (recommended)
 
 ```powershell
 .\start.ps1
 ```
 
-浏览器会自动打开 <http://127.0.0.1:8000>。**一个端口跑完整个应用**——页面和 API 由同一个进程提供，不需要另外开前端服务。
+Your browser opens automatically at <http://127.0.0.1:8000>. **One port serves the whole app** — the pages and the API come from the same process; you don't need a separate frontend server.
 
-如果提示「禁止运行脚本」，执行：
+If it says "running scripts is disabled", run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
-或者一次性放开当前用户的限制（只需做一次）：
+Or lift the restriction for the current user once (a one-time action):
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
@@ -145,299 +138,296 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ./start.sh
 ```
 
-### 开发模式（改代码自动刷新）
+### Development mode (auto-reload on code changes)
 
 ```powershell
 .\start.ps1 -Dev        # PowerShell
 ./start.sh --dev        # Git Bash
 ```
 
-开发模式会额外启动 Vite（端口 5173），浏览器访问 <http://127.0.0.1:5173>。改前端代码自动刷新，改后端代码自动重启。
+Development mode also starts Vite (port 5173); open <http://127.0.0.1:5173> in the browser. Frontend changes hot-reload; backend changes auto-restart.
 
-### 其他参数
+### Other flags
 
-| 参数 | 作用 |
+| Flag | Effect |
 |---|---|
-| `-NoBrowser` / `--no-browser` | 启动但不自动打开浏览器 |
-| `-SkipDoctor` / `--skip-doctor` | 跳过启动前的环境自检（更快，但出问题时报错更难懂） |
-| `--help` | 显示帮助（仅 `start.sh`） |
+| `-NoBrowser` / `--no-browser` | Start without opening the browser |
+| `-SkipDoctor` / `--skip-doctor` | Skip the pre-start environment self-check (faster, but errors are harder to read) |
+| `--help` | Show help (`start.sh` only) |
 
-停止服务：在窗口里按 `Ctrl+C`。子进程会被一并清理，不会留下孤儿进程继续占着端口。
-
----
-
-## 第一次使用
-
-浏览器会自动打开 `http://127.0.0.1:8000`。然后：
-
-1. 左边点「知识库」，右上角点「记一条」
-2. **名称**和**自己的理解**是必填的，其他都可以留空。
-   「自己的理解」是最重要的一栏——别抄原文，用自己的话说一遍。
-   写不出来的地方，就是还没学会的地方
-3. 「所属领域」输入时会提示你已经用过的写法。
-   同一个领域尽量用同一个名字，否则将来筛不到一起
-4. 「学习来源」可以加多条。类型选「其他」时必须写清楚到底是什么来源
-5. 点「记下来」
-
-之后想改就进详情页点「编辑」。改的时候表单上方会**提前告诉你这次保存会不会生成新版本**：
-
-- 改了「自己的理解 / 理解依据 / 尚存疑问」→ 生成新版本，旧的原文原样保留
-- 只改名称、领域、摘要或来源 → 不生成新版本（属于整理性工作）
-
-不想再看到某条知识，用「归档」，不是删除。
-归档后默认列表和搜索里都不显示，数据完整保留，随时点「恢复」就能回来。
-
-搜索支持中文。**「梯度」这种 2 字词也能搜到**——3 个字以上走全文索引，
-1~2 个字走关键词匹配，页面会告诉你这次用的是哪种。
+To stop the service: press `Ctrl+C` in the window. Child processes are cleaned up too, so no orphan process is left holding the port.
 
 ---
 
-## 目录结构
+## First use
+
+Your browser opens `http://127.0.0.1:8000` automatically. Then:
+
+1. Click **Knowledge base** on the left, then **Add entry** in the top-right.
+2. **Title** and **Your understanding** are required; everything else can be left blank.
+   "Your understanding" is the most important field — don't copy the source text, say it in your own words.
+   Whatever you can't articulate is exactly what you haven't learned yet.
+3. As you type in **Domain**, it suggests spellings you've already used.
+   Try to use the same name for the same domain, otherwise they won't group together later.
+4. **Learning sources** can hold multiple entries. If you pick the "Other" type, you must state clearly what the source actually is.
+5. Click **Save**.
+
+To edit later, open the detail page and click **Edit**. While editing, the top of the form **tells you in advance whether this save will create a new version**:
+
+- Changing "Your understanding / Reasoning / Open questions" → creates a new version; the old text is kept verbatim.
+- Changing only title, domain, summary, or sources → no new version (housekeeping).
+
+If you don't want to see an item anymore, use **Archive**, not delete.
+After archiving it disappears from the default list and from search, but the data is fully retained — click **Restore** anytime to bring it back.
+
+Search supports Chinese. **Two-character terms are searchable too** — 3+ characters go through the full-text index, 1–2 characters through keyword matching, and the page tells you which one it used.
+
+---
+
+## Project layout
 
 ```
 PersonalKnowledgeOS/
-├── start.ps1              Windows PowerShell 启动脚本
-├── start.sh               Git Bash / Linux / macOS 启动脚本
-├── pyproject.toml         Python 依赖与版本锁定
-├── uv.lock                依赖精确版本（保证换台机器装出来一样）
-├── alembic.ini            数据库迁移配置
-├── .env.example           配置模板（复制成 .env 后修改）
+├── start.ps1              Windows PowerShell start script
+├── start.sh               Git Bash / Linux / macOS start script
+├── pyproject.toml         Python dependencies and version pinning
+├── uv.lock                Exact dependency versions (so another machine installs identically)
+├── alembic.ini            Database migration config
+├── .env.example           Configuration template (copy to .env, then edit)
 │
-├── backend/               后端（FastAPI），五层，依赖只能自上而下
-│   ├── config.py          所有配置的唯一来源：端口、数据目录、AI 密钥
-│   ├── main.py            应用入口，同时托管 API 和前端页面
-│   ├── api/               接口层：health.py、knowledge.py、ai.py（对话/提取/审查）、
-│   │                      settings.py（AI 配置的读写与"测试连接"）、deps.py
-│   ├── schemas/           Pydantic 校验与序列化：knowledge.py、ai.py（AI 输出的边界）、
-│   │                      ai_api.py（AI 接口的请求/响应）
-│   ├── services/          应用服务：knowledge_service.py、search_service.py、
-│   │                      ai_service.py（三个 AI 工作流的编排，事务边界在这层）、
-│   │                      settings_service.py（把 AI 配置写进 .env）、
-│   │                      ai/（Provider 协议、httpx 实现、假实现、提示词、工厂）
-│   ├── domain/            纯业务规则：versioning.py（不 import 数据库和 Web 框架）
-│   └── db/                数据库：ORM 模型、会话、列类型
+├── backend/               Backend (FastAPI), five layers; dependencies flow top-down only
+│   ├── config.py          The single source of all configuration: ports, data dir, AI key
+│   ├── main.py            App entry point; serves both the API and the frontend
+│   ├── api/               Interface layer: health.py, knowledge.py, ai.py (chat/extract/review),
+│   │                      settings.py (read/write AI config + "Test connection"), deps.py
+│   ├── schemas/           Pydantic validation & serialization: knowledge.py, ai.py (the AI-output boundary),
+│   │                      ai_api.py (AI request/response models)
+│   ├── services/          Application services: knowledge_service.py, search_service.py,
+│   │                      ai_service.py (orchestration of the three AI workflows; transaction boundaries live here),
+│   │                      settings_service.py (writes AI config into .env),
+│   │                      ai/ (Provider protocol, httpx implementation, fake implementation, prompts, factory)
+│   ├── domain/            Pure business rules: versioning.py (does not import the database or the web framework)
+│   └── db/                Database: ORM models, sessions, column types
 │
-├── frontend/              前端（React + TypeScript + Vite）
+├── frontend/              Frontend (React + TypeScript + Vite)
 │   └── src/
-│       ├── app/           路由与导航配置
-│       ├── components/    ui/（基础组件）、knowledge/（业务组件）、feedback/、layout/
-│       ├── pages/         9 个页面组件，对应 10 条路由
-│       └── lib/           api.ts、schemas.ts、knowledge-queries.ts、format.ts
+│       ├── app/           Routing and navigation config
+│       ├── components/    ui/ (primitives), knowledge/ (business components), feedback/, layout/
+│       ├── pages/         9 page components across 10 routes
+│       └── lib/           api.ts, schemas.ts, knowledge-queries.ts, format.ts
 │
-├── migrations/            数据库迁移脚本（版本受控，不要手改已提交的迁移）
+├── migrations/            Database migration scripts (versioned — don't hand-edit a committed migration)
 ├── scripts/
-│   ├── doctor.py          环境自检
-│   └── setup.py           一键安装
-├── tests/                 pytest 测试
-├── docs/                  项目文档
-└── data/                  你的数据（数据库、备份）——已被 Git 忽略，绝不提交
+│   ├── doctor.py          Environment self-check
+│   └── setup.py           One-command install
+├── tests/                 pytest tests
+├── docs/                  Project documentation
+└── data/                  Your data (database, backups) — git-ignored, never committed
 ```
 
 ---
 
-## 常用命令
+## Common commands
 
-在项目根目录执行：
+Run these from the project root:
 
-| 目的 | 命令 |
+| Purpose | Command |
 |---|---|
-| 环境自检 | `python scripts/doctor.py` |
-| 跑测试 | `uv run pytest` |
-| 跑测试（带覆盖率详情） | `uv run pytest -v` |
-| 数据库迁移到最新 | `uv run alembic upgrade head` |
-| 看当前迁移版本 | `uv run alembic current` |
-| 检查模型与迁移是否一致 | `uv run alembic check` |
-| 生成新迁移 | `uv run alembic revision --autogenerate -m "说明"` |
-| 前端类型检查 | `cd frontend && npx tsc -b` |
-| 前端构建 | `cd frontend && npm run build` |
-| 前端开发服务器 | `cd frontend && npm run dev` |
+| Environment self-check | `python scripts/doctor.py` |
+| Run tests | `uv run pytest` |
+| Run tests (with verbose detail) | `uv run pytest -v` |
+| Migrate the database to latest | `uv run alembic upgrade head` |
+| Show current migration version | `uv run alembic current` |
+| Check models against migrations | `uv run alembic check` |
+| Generate a new migration | `uv run alembic revision --autogenerate -m "description"` |
+| Frontend type check | `cd frontend && npx tsc -b` |
+| Frontend build | `cd frontend && npm run build` |
+| Frontend dev server | `cd frontend && npm run dev` |
 
 ---
 
-## 配置说明
+## Configuration
 
-所有配置都通过环境变量或 `.env` 文件读取，前缀统一是 `PKOS_`。**代码里没有硬编码的端口或路径。**
+All configuration is read from environment variables or the `.env` file, with the `PKOS_` prefix throughout. **There are no hard-coded ports or paths in the code.**
 
-复制模板生成自己的配置：
+Copy the template to create your own config:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-| 变量 | 默认值 | 说明 |
+| Variable | Default | Description |
 |---|---|---|
-| `PKOS_HOST` | `127.0.0.1` | 监听地址。只本机访问就用默认值 |
-| `PKOS_PORT` | `8000` | 后端端口（单端口模式下也是页面端口） |
-| `PKOS_FRONTEND_PORT` | `5173` | 仅开发模式用到的 Vite 端口 |
-| `PKOS_DATA_DIR` | 项目内 `data/` | 数据库和备份存放位置。留空即用默认 |
-| `PKOS_AI_PROVIDER` | 空 | 阶段 2 才需要 |
-| `PKOS_AI_BASE_URL` | 空 | 阶段 2 才需要 |
-| `PKOS_AI_API_KEY` | 空 | **密钥。只放在这里，绝不要写进前端代码** |
-| `PKOS_AI_MODEL` | 空 | 阶段 2 才需要 |
-| `PKOS_AI_TIMEOUT_SECONDS` | `60` | AI 请求超时 |
-| `PKOS_LOG_LEVEL` | `INFO` | 日志级别 |
-| `PKOS_ALLOW_MISSING_FRONTEND` | `true` | 前端没构建时是否仍允许只启动 API |
+| `PKOS_HOST` | `127.0.0.1` | Listen address. Keep the default for local-only access |
+| `PKOS_PORT` | `8000` | Backend port (also the page port in single-port mode) |
+| `PKOS_FRONTEND_PORT` | `5173` | Vite port, used only in development mode |
+| `PKOS_DATA_DIR` | `data/` inside the project | Where the database and backups live. Leave blank to use the default |
+| `PKOS_AI_PROVIDER` | empty | Only needed for Stage 2 |
+| `PKOS_AI_BASE_URL` | empty | Only needed for Stage 2 |
+| `PKOS_AI_API_KEY` | empty | **The key. Keep it here only — never write it into frontend code** |
+| `PKOS_AI_MODEL` | empty | Only needed for Stage 2 |
+| `PKOS_AI_TIMEOUT_SECONDS` | `60` | AI request timeout |
+| `PKOS_LOG_LEVEL` | `INFO` | Log level |
+| `PKOS_ALLOW_MISSING_FRONTEND` | `true` | Whether to allow API-only startup when the frontend isn't built |
 
-`.env` 已被 `.gitignore` 忽略，不会被提交。
-
----
-
-## 数据与备份
-
-- 数据库文件：`data/app.db`（SQLite 单文件）
-- 备份目录：`data/backups/`
-- 数据库启用了 WAL 模式，所以同目录下还会看到 `app.db-wal` 和 `app.db-shm`
-
-**不要直接复制 `app.db` 来备份。** WAL 模式下最新数据可能还没写进主文件，直接复制会拿到不完整的库。正确做法有两种：
-
-- **让应用帮你备**：每次启动会自动备份一份到 `data/backups/`（保留最近 7 份），也可以在「设置」页点「立即备份」。备份用的就是 `VACUUM INTO`，拿到的一定是完整快照。
-- **手动备**（应用起不来时）：用 SQLite 命令行执行 `VACUUM INTO '备份文件路径.db'`。
-
-**恢复方法**：退出应用 → 把 `data/backups/` 里的某份备份复制回去替换 `data/app.db`（连同删掉旧的 `-wal`/`-shm` 文件）→ 重新启动。界面里故意不做「一键恢复」按钮——恢复是覆盖现有数据的危险操作，值得你手动确认一次。
-
-`data/` 整个目录已被 Git 忽略，你的知识数据不会被提交到版本库。
+`.env` is ignored by `.gitignore` and is never committed.
 
 ---
 
-## 隐私与安全
+## Data & backups
 
-- **数据默认只在本机。** 知识、版本、复习记录、对话都存在你电脑的 SQLite 里。
-- **只有调用 AI 功能时才会向外部发送数据**，且遵循最小必要原则——不会默认上传整个知识库。
-- **API Key 只从后端环境变量读取**，不出现在前端代码、接口响应、日志或版本库中。首页的自检接口只返回「配没配」，不返回密钥内容。
-- 服务默认只监听 `127.0.0.1`，不暴露到局域网或公网。
+- Database file: `data/app.db` (single SQLite file)
+- Backup directory: `data/backups/`
+- The database uses WAL mode, so you'll also see `app.db-wal` and `app.db-shm` in the same directory
+
+**Do not copy `app.db` directly to back it up.** In WAL mode the newest data may not have been written into the main file yet, so a direct copy yields an incomplete database. There are two correct approaches:
+
+- **Let the app back it up**: every launch writes an automatic backup into `data/backups/` (keeping the 7 most recent), and you can click "Back up now" on the Settings page. Backups use `VACUUM INTO`, which always produces a complete snapshot.
+- **Manual backup** (when the app won't start): run `VACUUM INTO 'path/to/backup.db'` via the SQLite command line.
+
+**To restore**: quit the app → copy a backup from `data/backups/` over `data/app.db` (and delete the old `-wal`/`-shm` files) → restart. There is deliberately **no** one-click "Restore" button in the UI — restoring overwrites existing data, a dangerous operation worth one manual confirmation.
+
+The entire `data/` directory is git-ignored, so your knowledge data is never committed to version control.
 
 ---
 
-## 故障排查
+## Privacy & security
 
-### 1. 端口被占用
+- **Data stays on your machine by default.** Knowledge, versions, review records, and conversations all live in SQLite on your own computer.
+- **Data is sent externally only when you use an AI feature**, following least-privilege — it never uploads your whole knowledge base by default.
+- **The API key is read only from backend environment variables** and never appears in frontend code, API responses, logs, or version control. The homepage health-check endpoint returns only "configured or not", never the key's contents.
+- The service listens on `127.0.0.1` by default and is not exposed to the LAN or the internet.
 
-自检会直接告诉你是谁占的：
+---
+
+## Troubleshooting
+
+### 1. Port already in use
+
+The self-check tells you exactly who holds it:
 
 ```
-[XX]  后端端口 8000   已有服务在监听（PID 53328（python.exe））
-       ↳ 怎么办：关掉占用进程，或在 .env 里设置 PKOS_PORT 换一个端口
+[XX]  Backend port 8000   a service is already listening (PID 53328 (python.exe))
+       ↳ what to do: kill the process, or set PKOS_PORT in .env to use another port
 ```
 
-结束占用进程：
+To kill the process holding it:
 
 ```powershell
 taskkill /PID 53328 /F
 ```
 
-换端口：编辑 `.env` 里的 `PKOS_PORT`，前端会自动跟随，不用改代码。
+To change the port: edit `PKOS_PORT` in `.env`; the frontend follows automatically, no code change needed.
 
-### 2. 端口空闲却还是绑定失败
+### 2. Port is free but binding still fails
 
-Windows 上 Hyper-V / WSL 会**保留**一大片端口，落在保留段里绑定时会报「拒绝访问」。自检会识别这种情况：
+On Windows, Hyper-V / WSL **reserve** large ranges of ports; binding a port inside a reserved range fails with "access denied". The self-check detects this:
 
 ```
-[XX]  后端端口 8000   落在 Windows 保留端口段 50000-50059 内，绑定会被系统拒绝
+[XX]  Backend port 8000   falls inside the Windows reserved port range 50000-50059; binding will be denied by the OS
 ```
 
-查看系统保留了哪些端口：
+To see which ports the system reserved:
 
 ```powershell
 netsh interface ipv4 show excludedportrange protocol=tcp
 ```
 
-解决办法是换一个不在保留段里的端口。
+The fix is to pick a port outside the reserved ranges.
 
-### 3. 代理软件拦截 localhost（Clash / Verge 等）
+### 3. Proxy software intercepting localhost (Clash / Verge, etc.)
 
-**症状**：服务明明启动了，浏览器却打不开 <http://127.0.0.1:8000>，或者报连接被重置。
+**Symptom**: the service is clearly running, but the browser can't open <http://127.0.0.1:8000>, or reports a connection reset.
 
-**原因**：代理软件把本机回环地址也走了代理。
+**Cause**: the proxy is routing the loopback address through the proxy too.
 
-**解决办法**（任选其一）：
-- 在代理软件里把 `127.0.0.1`、`localhost` 加入绕过列表（bypass / 直连规则）
-- 临时关闭系统代理
-- 关闭代理软件的「TUN 模式 / 增强模式」
+**Fixes** (any one):
+- Add `127.0.0.1` and `localhost` to the proxy's bypass list (direct-connect rules)
+- Temporarily turn off the system proxy
+- Turn off the proxy's "TUN mode / enhanced mode"
 
-命令行快速验证是不是代理的问题：
+A quick command-line check for whether the proxy is the culprit:
 
 ```powershell
 curl.exe --noproxy "*" http://127.0.0.1:8000/api/health
 ```
 
-如果加了 `--noproxy "*"` 就通了，那确定是代理拦截。
+If it works once you add `--noproxy "*"`, the proxy is intercepting.
 
-### 4. 中文输出变成乱码
+### 4. Chinese output shows as mojibake
 
-启动脚本已经设置了 `PYTHONUTF8=1`，正常情况下不会乱码。如果你是**直接**运行某个 Python 脚本看到乱码，先设置：
+The start scripts already set `PYTHONUTF8=1`, so this shouldn't happen normally. If you run a Python script **directly** and see mojibake, set this first:
 
 ```powershell
 $env:PYTHONUTF8 = "1"
 chcp 65001
 ```
 
-### 5. PowerShell 提示禁止运行脚本
+### 5. PowerShell says scripts are disabled
 
-见上面「启动」一节的 `Set-ExecutionPolicy` 说明。
+See the `Set-ExecutionPolicy` note in the "Starting the app" section above.
 
-### 6. `npm ci` 很慢或失败
+### 6. `npm ci` is slow or fails
 
-配置国内镜像：
+Configure a domestic mirror (helps in mainland China):
 
 ```powershell
 npm config set registry https://registry.npmmirror.com
 ```
 
-### 7. 数据库损坏或迁移失败
+### 7. Database corruption or migration failure
 
-先备份现有文件，再决定：
+Back up the current files first, then decide:
 
 ```powershell
 Copy-Item data\app.db data\app.db.broken-backup
-uv run alembic current          # 看当前在哪个版本
-uv run alembic upgrade head     # 尝试继续迁移
+uv run alembic current          # see which version you're on
+uv run alembic upgrade head     # try to continue migrating
 ```
 
-如果数据库是新建的、里面没有数据，最简单的办法是删掉 `data/app.db*` 三个文件后重新运行 `python scripts\setup.py`。**里面有数据时不要这么做。**
+If the database is newly created and holds no data, the simplest fix is to delete the three `data/app.db*` files and re-run `python scripts\setup.py`. **Do not do this when there is real data in it.**
 
-### 8. 前端页面空白
+### 8. Blank frontend page
 
-- 确认构建产物存在：`frontend/dist/index.html`
-- 确认访问的是后端端口（单端口模式 8000），而不是 Vite 端口
-- 打开浏览器开发者工具（F12）看 Console 报错
-- 访问 <http://127.0.0.1:8000/api/health> 看后端自检结果
+- Confirm the build output exists: `frontend/dist/index.html`
+- Confirm you're hitting the backend port (8000 in single-port mode), not the Vite port
+- Open the browser DevTools (F12) and check the Console for errors
+- Visit <http://127.0.0.1:8000/api/health> to see the backend self-check result
 
-### 9. AI 回复是空的（尤其是用中转站的时候）
+### 9. The AI reply is empty (especially with a relay/proxy endpoint)
 
-**先看设置页的「API 地址」末尾有没有 `/v1`。** 这是最常见的成因：
+**First check whether the "API base URL" on the Settings page ends with `/v1`.** This is the most common cause:
 
-| 你填的 | 实际请求打到 | 结果 |
+| What you entered | Where the request actually goes | Result |
 |---|---|---|
-| `https://你的中转站.com` | `https://你的中转站.com/chat/completions` | 命中的是**官网网页**，不是接口 |
-| `https://你的中转站.com/v1` | `https://你的中转站.com/v1/chat/completions` | 正常 |
+| `https://your-relay.com` | `https://your-relay.com/chat/completions` | Hits the **website**, not the API |
+| `https://your-relay.com/v1` | `https://your-relay.com/v1/chat/completions` | Correct |
 
-网页的 HTTP 状态码也是 200，所以看起来"连上了"，但里面一个字都没有，
-于是表现为「测试连接说成功、聊天却回空」。现在这两种情况都会明确报错：
+The website also returns HTTP 200, so it looks "connected", but contains no text — which shows up as "Test connection succeeds, but the chat returns nothing". Both cases now report a clear error:
 
-- 聊天时报错：**这个 API 地址没有返回对话数据……请在末尾补上 /v1**
-- 「测试连接」只有真的拿到文字才算成功；拿到 200 但没文字会报
-  **「模型连接正常但没有返回任何文字，请换个模型或检查中转站的配置」**
+- When chatting: **"This API address did not return conversation data… please append /v1 to the end"**
+- "Test connection" only reports success once it actually receives text; a 200 with no text reports
+  **"The model connection is fine but returned no text — try a different model or check the relay's configuration"**
 
-改完地址点一下「测试连接」验证即可，不用重启服务。
-其他可能：模型名写错（会报 HTTP 400/404）、中转站当日额度用完、
-推理型模型只输出思考内容不输出正文（换一个普通对话模型试试）。
+After fixing the address, click "Test connection" to verify — no need to restart the service.
+Other possibilities: a wrong model name (reports HTTP 400/404), the relay's daily quota exhausted, or a reasoning model that outputs only its thinking and no answer body (try a regular chat model).
 
 ---
 
-## 开发约定
+## Development conventions
 
-- **依赖版本是锁定的**，升级需要明确理由并记录到 [docs/DECISIONS.md](docs/DECISIONS.md)。
-- **每完成一个阶段**：跑测试、类型检查、构建，更新 README 和开发记录，再开始下一阶段。
-- **不要手改已经提交的迁移文件**，要改就新建一个迁移。
-- `start.ps1` 必须是**带 BOM 的 UTF-8**，`start.sh` 必须是 **LF 换行**——`.gitattributes` 已经强制了这一点，不要绕过它。
+- **Dependency versions are pinned**; upgrading requires an explicit reason recorded in [docs/DECISIONS.md](docs/DECISIONS.md).
+- **After each stage**: run tests, type-check, build, update the README and the development log, then start the next stage.
+- **Never hand-edit a committed migration file** — if you need a change, create a new migration.
+- `start.ps1` must be **UTF-8 with BOM**, and `start.sh` must use **LF line endings** — `.gitattributes` already enforces this; don't bypass it.
 
-更多细节：
+More details (these docs are currently in Chinese):
 
-| 文档 | 内容 |
+| Document | Contents |
 |---|---|
-| [docs/PRD.md](docs/PRD.md) | 产品需求与范围边界 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 架构分层、模块边界、数据流 |
-| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | 数据表、字段、关系与迁移说明 |
-| [docs/AI_WORKFLOWS.md](docs/AI_WORKFLOWS.md) | AI 提示词、输入输出 Schema、安全边界 |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | 阶段、任务、验收标准、已知问题 |
-| [docs/DECISIONS.md](docs/DECISIONS.md) | 重要技术决策及理由 |
+| [docs/PRD.md](docs/PRD.md) | Product requirements and scope boundaries |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture layers, module boundaries, data flow |
+| [docs/DATA_MODEL.md](docs/DATA_MODEL.md) | Tables, fields, relations, and migration notes |
+| [docs/AI_WORKFLOWS.md](docs/AI_WORKFLOWS.md) | AI prompts, input/output schemas, safety boundaries |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Stages, tasks, acceptance criteria, known issues |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Key technical decisions and their rationale |
