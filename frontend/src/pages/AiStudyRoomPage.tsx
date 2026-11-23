@@ -3,6 +3,7 @@ import { Link } from "react-router-dom"
 import { BookPlus, Send, Trash2 } from "lucide-react"
 
 import { ApiErrorNotice, EmptyState, Notice } from "@/components/feedback/Notice"
+import { CopyButton } from "@/components/ai/CopyButton"
 import { DraftConfirmPanel } from "@/components/ai/DraftConfirmPanel"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -245,7 +246,7 @@ export function AiStudyRoomPage() {
               </div>
             </div>
           ) : (
-            <div key={message.id} className="flex justify-start">
+            <div key={message.id} className="flex flex-col items-start gap-1">
               <div
                 className={
                   message.error_kind
@@ -262,6 +263,9 @@ export function AiStudyRoomPage() {
                   {message.content}
                 </p>
               </div>
+              {!message.error_kind && message.content && (
+                <CopyButton text={message.content} />
+              )}
             </div>
           ),
         )}

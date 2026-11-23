@@ -12,6 +12,7 @@ import {
 } from "lucide-react"
 
 import { ApiErrorNotice, EmptyState, Notice } from "@/components/feedback/Notice"
+import { CopyButton } from "@/components/ai/CopyButton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -479,24 +480,26 @@ export function ReviewCenterPage() {
               ref={scrollRef}
               className="flex max-h-[45vh] min-h-48 flex-col gap-3 overflow-y-auto rounded-xl border border-border bg-muted/30 p-3"
             >
-              {chat.messages.map((message, index) => (
-                <div
-                  key={index}
-                  className={message.role === "user" ? "flex justify-end" : "flex justify-start"}
-                >
-                  <div
-                    className={
-                      message.role === "user"
-                        ? "max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-3.5 py-2.5"
-                        : "max-w-[85%] rounded-2xl rounded-bl-sm bg-background px-3.5 py-2.5"
-                    }
-                  >
-                    <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
-                      {message.content}
-                    </p>
+              {chat.messages.map((message, index) =>
+                message.role === "user" ? (
+                  <div key={index} className="flex justify-end">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-3.5 py-2.5">
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                        {message.content}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ) : (
+                  <div key={index} className="flex flex-col items-start gap-1">
+                    <div className="max-w-[85%] rounded-2xl rounded-bl-sm bg-background px-3.5 py-2.5">
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap">
+                        {message.content}
+                      </p>
+                    </div>
+                    {message.content && <CopyButton text={message.content} />}
+                  </div>
+                ),
+              )}
               {pendingUserText !== null && (
                 <div className="flex justify-end">
                   <div className="max-w-[85%] rounded-2xl rounded-br-sm bg-primary/10 px-3.5 py-2.5">
@@ -581,6 +584,9 @@ export function ReviewCenterPage() {
                   AI 建议「{RATING_LABELS[suggestion.suggested_rating]}」，理由：
                   {suggestion.evaluation}
                 </p>
+                <CopyButton
+                  text={`AI 建议「${RATING_LABELS[suggestion.suggested_rating]}」，理由：${suggestion.evaluation}`}
+                />
               </Notice>
             )}
 
