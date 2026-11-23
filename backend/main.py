@@ -222,9 +222,17 @@ def _register_ai_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(AiError)
     async def _ai_failure(request: Request, exc: AiError) -> JSONResponse:
         status_code = AI_ERROR_STATUS.get(exc.error_kind, 502)
-        # 日志只记 kind 和路径。异常对象本身按设计不含原文/key/正文（C6），
-        # 但 logger 不该依赖那个设计——这里就一个 kind 一条路径。
-        logger.warning("AI 调用失败：%s %s -> %s", request.url.path, exc.error_kind, status_code)
+        # 日志记 kind + 路径 + detail。`exc.detail` 按错误契约只可能是
+        # base_url / HTTP 状态码 / 字段名 / 一句不含数据的说明，**永远不含**
+        # 用户正文或密钥（C6）；响应体仍只给 user_message（最小必要，C5）。
+        # 排查间歇性失败（如抽取偶发解析不了）全靠这行 detail 定位是哪一支。
+        logger.warning(
+            "AI 调用失败：%s %s -> %s（%s）",
+            request.url.path,
+            exc.error_kind,
+            status_code,
+            exc.detail,
+        )
         return JSONResponse(
             {"detail": exc.user_message, "error_kind": exc.error_kind},
             status_code=status_code,
@@ -301,7 +309,12 @@ def _mount_frontend(app: FastAPI, settings: Settings) -> None:
         candidate = (dist / full_path).resolve()
         # 防目录穿越：解析后的真实路径必须仍在 dist 内
         if not candidate.is_relative_to(dist) or not candidate.is_file():
-            return FileResponse(index)
+            # index.html 永远要重新校验：它引用的是内容哈希命名的 chunk，
+            # 前端每次 `npm run build` 都会换名并清空旧名（emptyOutDir）。
+            # 浏览器若用缓存的旧 index.html，就会去拉已被删掉的旧哈希 → 404，
+            # 表现为「重新构建了但 app 窗口还是旧版、还报错」。no-cache 配合
+            # FileResponse 自带的 ETag，未变时走 304、几乎零成本。
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})
         return FileResponse(candidate)
 
 

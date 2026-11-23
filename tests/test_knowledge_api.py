@@ -967,6 +967,14 @@ class TestNonRegression:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
 
+    def test_index_html_is_no_cache(self, client: TestClient) -> None:
+        """index.html 必须每次重新校验（D-077 配套）：前端重建后 chunk 换名，
+        浏览器用缓存的旧 index.html 会去拉已删的旧哈希 → 404，桌面 app 窗口就卡旧版。
+        no-cache + FileResponse 自带 ETag：未变走 304，几乎零成本。"""
+        response = client.get("/")
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+
     def test_directory_traversal_is_still_blocked(self, client: TestClient) -> None:
         for path in ["/../../pyproject.toml", "/%2e%2e%2fpyproject.toml"]:
             response = client.get(path)
