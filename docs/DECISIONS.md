@@ -1232,3 +1232,24 @@ D-038 ~ D-043 是用户确认过的产品决策。
 - **生效需要重启后端**：①的解析改动与②的 no-cache 都在**后端 Python**里，正在运行的
   服务不会自动热更。桌面版**关掉 app 窗口再双击图标**（关窗即停）即拉新后端 + 新前端，
   两件事一起解决。
+
+### D-078 懒加载失败自动重载 + 友好中文错误页，根治"点知识弹英文死白屏"
+
+- **动因**（2026-11-23 用户截图）：点一条已压缩好的知识，弹出
+  `Unexpected Application Error! Failed to fetch dynamically imported module:
+  …/assets/KnowledgeDetailPage-n4aClSQl.js` 加一屏空白——React Router 默认错误页，
+  英文、无出口，对新手极不友好。
+- **根因**（承接 D-077）：那个 app 窗口还握着**旧 index.html**，它引用的详情 chunk
+  哈希 `n4aClSQl` 在我重建后已被 `emptyOutDir` 删掉（新名 `C2zYOq2s`），懒加载 404。
+  D-077 的 no-cache 只保证「重新加载时拿得到新壳」，但**已经开着的旧窗口不会自己重来**。
+- **修法**（`frontend/src/app/router.tsx` + `components/layout/RouteError.tsx`）：
+  把裸 `lazy` 换成 `lazyWithReload`——动态 import 失败就 `window.location.reload()`
+  一次（15 秒冷却防死循环），重载期间显示「正在重新加载…」占位；真救不回（或不是
+  chunk 问题）由 `RouteError` 兜底：中文说明 +「重新加载」/「回首页」。`errorElement`
+  挂在**子路由**上，出错时侧栏外壳仍在，用户还能直接点去别的页面。
+- **验证**：起新后端实测——曾 404 的那条详情页在新构建下完整渲染，且正常加载**不会**
+  被 `lazyWithReload` 误触发重载；`tsc -b` 与 `vite build` 通过。
+- **诚实边界**：没有人为删 chunk 去现场演示错误页（会污染正在服务的 dist），
+  错误页与自动重载以代码审查 + 构建 + 正常路径无回归来确认。
+- **关系**：D-077 让"重建后刷新即生效"，本条让"没来得及刷新的旧窗口"也能自愈或给出
+  明确出口，不再死白屏。

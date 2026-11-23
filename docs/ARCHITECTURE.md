@@ -261,7 +261,7 @@ def get_session() -> Generator[Session, None, None]:
 ## 四、前端结构
 
 ```
-frontend/src/                     47 个 TS/TSX 文件（tsc -b --listFiles 实测）
+frontend/src/                     48 个 TS/TSX 文件（tsc -b --listFiles 实测）
 ├── main.tsx                 应用入口：QueryClientProvider + RouterProvider
 ├── index.css                Tailwind 4 入口 + CSS 变量主题
 ├── app/
@@ -269,7 +269,8 @@ frontend/src/                     47 个 TS/TSX 文件（tsc -b --listFiles 实�
 │   └── navigation.ts        NAV_ITEMS：导航项的单一数据源
 ├── components/
 │   ├── layout/
-│   │   └── AppShell.tsx         响应式外壳（可拖拽侧栏 / 移动端抽屉）
+│   │   ├── AppShell.tsx         响应式外壳（可拖拽侧栏 / 移动端抽屉）
+│   │   └── RouteError.tsx       路由级错误页：中文说明 + 重新加载/回首页（D-078）
 │   ├── ai/
 │   │   ├── CopyButton.tsx       复制一段文本（剪贴板 API + execCommand 回退）——
 │   │   │                        桌面 app 窗口右键菜单没有「复制」，靠它在页内复制（D-076）
@@ -714,7 +715,7 @@ def port_state(port, host="127.0.0.1"):
 
 ## 八、当前实现状态（诚实版）
 
-后端 9230 行 Python（backend + migrations），前端 47 个 TS/TSX 文件，测试 754 个（22 个测试文件）。
+后端 9230 行 Python（backend + migrations），前端 48 个 TS/TSX 文件，测试 761 个（22 个测试文件）。
 
 | 部分 | 状态 |
 |---|---|
