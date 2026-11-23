@@ -10,7 +10,7 @@
 ### D-001 项目放在 `D:\PersonalKnowledgeOS`，不放 OneDrive 目录
 
 - **决策**：项目独立于 OneDrive，放在 D 盘根目录下的独立文件夹。
-- **理由**：最初计划放在 `桌面 OneDrive 同步目录下的一个私人文件夹` 下，
+- **理由**：最初计划放在桌面 OneDrive 同步目录下的一个私人文件夹里，
   并用 junction（目录联接）把 `node_modules`、`.venv`、`data` 指到 OneDrive 之外。
   **实测证明这条路走不通**：`npm install` 会删除并重建 `node_modules` 目录本身，
   junction 被当成普通目录删掉，之后的文件直接写进 OneDrive 同步范围，
